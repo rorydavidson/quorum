@@ -1,9 +1,14 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+// Load .env.local first (dev overrides), then .env as fallback
+dotenvConfig({ path: '.env.local' });
+dotenvConfig({ path: '.env' });
 import express, { type Express } from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import { initKeycloak } from './services/keycloak.js';
+import { runMigrations } from './services/db.js';
 import authRouter from './routes/auth.js';
+import documentsRouter from './routes/documents.js';
 
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
@@ -46,9 +51,9 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/documents', documentsRouter);
 
-// Placeholder routes — implemented in Phase 3+
-// app.use('/documents', documentsRouter);
+// Placeholder routes — implemented in future phases
 // app.use('/calendar', calendarRouter);
 // app.use('/search', searchRouter);
 // app.use('/admin', adminRouter);
@@ -70,6 +75,13 @@ async function start(): Promise<void> {
     await initKeycloak();
   } catch (err) {
     console.warn('[startup] Keycloak discovery failed — running without auth (check env vars):', (err as Error).message);
+  }
+
+  try {
+    await runMigrations();
+  } catch (err) {
+    console.error('[startup] DB migration failed:', err);
+    process.exit(1);
   }
 
   app.listen(PORT, () => {
