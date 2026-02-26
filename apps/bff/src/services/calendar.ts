@@ -254,9 +254,9 @@ export async function listEvents(
  * Fetch upcoming events across all provided calendars, merged and sorted by start time.
  *
  * Priority order:
- *  1. Google Calendar API (Service Account) — when SA credentials are configured
- *  2. Public iCal feeds — when no SA but calendarIds are configured (works for public calendars)
- *  3. Mock data — fallback when no real events can be fetched at all
+ *  1. Google Calendar API (Service Account) — entries with a non-empty calendarId when SA creds set
+ *  2. iCal feeds — entries with an icalUrl (always); or all entries when SA is not configured
+ *  3. Mock data — fallback only when no real data was fetched from any source
  */
 export async function getUpcomingEvents(
   calendars: CalendarEntry[],
@@ -268,46 +268,140 @@ export async function getUpcomingEvents(
   const now = new Date();
   const timeMax = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
+  const allEvents: CalendarEvent[] = [];
+  let anyRealDataFetched = false;
+
   // ------------------------------------------------------------------
   // Tier 1: Google Calendar API via Service Account
+  // Only for entries where calendarId is non-empty — never call the API
+  // with an empty string as that produces `calendars//events` → 404.
   // ------------------------------------------------------------------
   if (isServiceAccountMode()) {
-    const results = await Promise.allSettled(
-      calendars.map(async (entry) => {
-        const events = await listEvents(entry.calendarId, {
-          maxResults: limit,
-          timeMin: now.toISOString(),
-          timeMax: timeMax.toISOString(),
-        });
-        return events.map((e): CalendarEvent => ({
-          ...e,
-          spaceId: entry.spaceId,
-          spaceName: entry.spaceName,
-        }));
-      })
-    );
+    const saEntries = calendars.filter((e) => !!e.calendarId);
 
-    const allEvents: CalendarEvent[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      if (result.status === 'fulfilled') {
-        allEvents.push(...result.value);
-      } else {
-        console.error(
-          `[calendar] SA: failed to fetch calendar ${calendars[i].calendarId}:`,
-          result.reason
-        );
+    if (saEntries.length > 0) {
+      const results = await Promise.allSettled(
+        saEntries.map(async (entry) => {
+          const events = await listEvents(entry.calendarId, {
+            maxResults: limit,
+            timeMin: now.toISOString(),
+            timeMax: timeMax.toISOString(),
+          });
+          return events.map((e): CalendarEvent => ({
+            ...e,
+            spaceId: entry.spaceId,
+            spaceName: entry.spaceName,
+          }));
+        })
+      );
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const entry = saEntries[i];
+        if (result.status === 'fulfilled') {
+          anyRealDataFetched = true;
+          allEvents.push(...result.value);
+          console.log(
+            `[calendar] SA: fetched ${result.value.length} events for ${entry.calendarId}`
+          );
+        } else {
+          console.error(
+            `[calendar] SA: failed to fetch calendar ${entry.calendarId}:`,
+            (result.reason as Error)?.message ?? result.reason
+          );
+
+          // SA failed — try iCal fallback if an icalUrl is set on this entry
+          if (entry.icalUrl) {
+            console.log(
+              `[calendar] SA: falling back to iCal for ${entry.calendarId} (icalUrl set)`
+            );
+            try {
+              const icalEvents = await fetchICalEvents(
+                entry.icalUrl,
+                { timeMin: now, timeMax, maxResults: limit },
+                false
+              );
+              anyRealDataFetched = true;
+              allEvents.push(
+                ...icalEvents.map((e): CalendarEvent => ({
+                  ...e,
+                  spaceId: entry.spaceId,
+                  spaceName: entry.spaceName,
+                }))
+              );
+              console.log(
+                `[calendar] iCal fallback: fetched ${icalEvents.length} events from ${entry.icalUrl}`
+              );
+            } catch (icalErr) {
+              console.warn(
+                `[calendar] iCal fallback also failed for ${entry.icalUrl}:`,
+                (icalErr as Error)?.message
+              );
+            }
+          }
+        }
       }
     }
 
-    return allEvents
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-      .slice(0, limit);
+    // ------------------------------------------------------------------
+    // Tier 1b: iCal for entries that have an icalUrl but no calendarId.
+    // These cannot go through the SA API, so we always use their iCal URL
+    // even when SA credentials are present.
+    // ------------------------------------------------------------------
+    const icalOnlyEntries = calendars.filter((e) => !e.calendarId && e.icalUrl);
+
+    if (icalOnlyEntries.length > 0) {
+      const icalResults = await Promise.allSettled(
+        icalOnlyEntries.map(async (entry) => {
+          const events = await fetchICalEvents(
+            entry.icalUrl!,
+            { timeMin: now, timeMax, maxResults: limit },
+            false // direct URL — don't derive Google public iCal URL
+          );
+          return events.map((e): CalendarEvent => ({
+            ...e,
+            spaceId: entry.spaceId,
+            spaceName: entry.spaceName,
+          }));
+        })
+      );
+
+      for (let i = 0; i < icalResults.length; i++) {
+        const result = icalResults[i];
+        const label = icalOnlyEntries[i].icalUrl!;
+        if (result.status === 'fulfilled') {
+          anyRealDataFetched = true;
+          allEvents.push(...result.value);
+          console.log(
+            `[calendar] iCal (SA mode): fetched ${result.value.length} events from ${label}`
+          );
+        } else {
+          console.warn(
+            `[calendar] iCal (SA mode): could not fetch ${label}`,
+            String(result.reason).split('\n')[0]
+          );
+        }
+      }
+    }
+
+    if (anyRealDataFetched) {
+      return allEvents
+        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+        .slice(0, limit);
+    }
+
+    // Fall through to mock only if both SA and iCal-only fetches all failed
+    console.log('[calendar] SA mode: no real data fetched from any source — using mock events');
+    return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
+      ...e,
+      spaceId: calendars[i % calendars.length].spaceId,
+      spaceName: calendars[i % calendars.length].spaceName,
+    }));
   }
 
   // ------------------------------------------------------------------
-  // Tier 2: iCal feeds (no SA credentials required)
-  // Priority: icalUrl (direct feed URL) > Google Calendar public iCal URL (derived from calendarId)
+  // Tier 2: iCal feeds (no SA credentials configured)
+  // Priority: icalUrl (direct feed URL) > Google Calendar public iCal URL derived from calendarId
   // ------------------------------------------------------------------
   const icalResults = await Promise.allSettled(
     calendars.map(async (entry) => {
@@ -350,8 +444,8 @@ export async function getUpcomingEvents(
     }
   }
 
-  // If at least one iCal request succeeded (even if 0 events), trust it over mock data.
-  // This ensures an empty calendar shows as empty, not as mock events.
+  // If at least one iCal request succeeded (even returning 0 events), trust it over mock data.
+  // This ensures an empty calendar shows as empty rather than falling back to example events.
   if (anyICalSuccess) {
     return icalEvents
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
@@ -359,7 +453,7 @@ export async function getUpcomingEvents(
   }
 
   // ------------------------------------------------------------------
-  // Tier 3: Mock data — all iCal fetches failed (private calendars or network error)
+  // Tier 3: Mock data — all fetches failed (private calendars or network error)
   // ------------------------------------------------------------------
   console.log('[calendar] All iCal fetches failed — using mock events');
   return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({

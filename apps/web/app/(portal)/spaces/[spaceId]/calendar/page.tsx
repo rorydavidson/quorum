@@ -110,7 +110,7 @@ export default async function SpaceCalendarPage({ params }: Props) {
           <Calendar size={40} className="mx-auto mb-4 text-snomed-grey/20" aria-hidden="true" />
           <p className="text-sm font-medium text-snomed-grey">No upcoming meetings</p>
           <p className="mt-1 text-xs text-snomed-grey/50">
-            {space?.calendarId
+            {(space?.calendarId || space?.icalUrl)
               ? 'There are no scheduled meetings in the next 12 months.'
               : 'No calendar has been linked to this space yet.'}
           </p>

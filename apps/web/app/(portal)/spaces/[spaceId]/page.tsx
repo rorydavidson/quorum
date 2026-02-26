@@ -256,7 +256,7 @@ export default async function SpaceLandingPage({ params }: Props) {
               <Calendar size={18} className="text-snomed-blue" aria-hidden="true" />
               <h2 className="font-semibold text-snomed-grey">Upcoming Meetings</h2>
             </div>
-            {space?.calendarId && (
+            {(space?.calendarId || space?.icalUrl) && (
               <Link
                 href={`/spaces/${spaceId}/calendar`}
                 className="flex items-center gap-1 text-xs text-snomed-blue hover:underline"
@@ -270,7 +270,7 @@ export default async function SpaceLandingPage({ params }: Props) {
             {upcomingEvents.length === 0 ? (
               <div className="px-5 py-8 text-center col-span-3">
                 <p className="text-sm text-snomed-grey/50">No upcoming meetings scheduled</p>
-                {!space?.calendarId && (
+                {!space?.calendarId && !space?.icalUrl && (
                   <p className="mt-1 text-xs text-snomed-grey/40">A calendar has not been linked to this space</p>
                 )}
               </div>
