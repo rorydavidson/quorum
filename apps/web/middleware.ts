@@ -3,6 +3,19 @@ import type { NextRequest } from 'next/server';
 
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
+// ---------------------------------------------------------------------------
+// Dev auth bypass — set DEV_AUTH_BYPASS=true in .env.local to skip Keycloak.
+// Never active when NODE_ENV=production.
+// ---------------------------------------------------------------------------
+const DEV_USER = JSON.stringify({
+  sub: 'dev-user',
+  email: 'dev@example.com',
+  name: 'Dev User',
+  given_name: 'Dev',
+  family_name: 'User',
+  groups: ['portal_admin'],
+});
+
 // Routes that are publicly accessible without a session
 const PUBLIC_PATHS = [
   '/api/auth',   // auth proxy routes — must be reachable to initiate login
@@ -19,6 +32,13 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   if (isPublic(pathname)) {
     return NextResponse.next();
+  }
+
+  // Dev bypass — inject a fake admin user without hitting the BFF or Keycloak
+  if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true') {
+    const response = NextResponse.next();
+    response.headers.set('x-quorum-user', DEV_USER);
+    return response;
   }
 
   // Check session with BFF — forward the session cookie so BFF can read it
