@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -88,4 +88,39 @@ export async function getSectionFiles(
  */
 export function fileDownloadUrl(spaceId: string, fileId: string): string {
   return `/api/documents/${spaceId}/${fileId}/download`;
+}
+
+// ---------------------------------------------------------------------------
+// Calendar
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch upcoming calendar events across all spaces the user can access.
+ * Call from server components — pass the incoming cookie header.
+ */
+export async function getUpcomingEvents(
+  cookie: string,
+  limit = 10,
+  days = 30
+): Promise<CalendarEvent[]> {
+  return bffFetch<CalendarEvent[]>(`/calendar?limit=${limit}&days=${days}`, {
+    cookie,
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Fetch upcoming events scoped to a single space.
+ * Used on the space landing page and the space calendar view.
+ */
+export async function getSpaceEvents(
+  spaceId: string,
+  cookie: string,
+  limit = 5,
+  days = 90
+): Promise<CalendarEvent[]> {
+  return bffFetch<CalendarEvent[]>(
+    `/calendar?spaceId=${encodeURIComponent(spaceId)}&limit=${limit}&days=${days}`,
+    { cookie, cache: 'no-store' }
+  );
 }

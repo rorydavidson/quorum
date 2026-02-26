@@ -27,11 +27,21 @@ export async function runMigrations(): Promise<void> {
       t.string('keycloak_group').notNullable();
       t.string('drive_folder_id').notNullable();
       t.string('calendar_id').nullable();
+      t.string('ical_url').nullable();
       t.string('hierarchy_category').notNullable().defaultTo('General');
       t.text('upload_groups').notNullable().defaultTo('[]'); // JSON array
       t.integer('sort_order').notNullable().defaultTo(0);
     });
     console.log('[db] Created spaces table');
+  }
+
+  // Idempotent column migration: add ical_url if it doesn't exist (existing DBs)
+  const hasIcalUrl = await db.schema.hasColumn('spaces', 'ical_url');
+  if (!hasIcalUrl) {
+    await db.schema.alterTable('spaces', (t) => {
+      t.string('ical_url').nullable();
+    });
+    console.log('[db] Added ical_url column to spaces table');
   }
 
   const hasSections = await db.schema.hasTable('space_sections');
@@ -60,6 +70,7 @@ interface SpaceRow {
   keycloak_group: string;
   drive_folder_id: string;
   calendar_id: string | null;
+  ical_url: string | null;
   hierarchy_category: string;
   upload_groups: string; // JSON
   sort_order: number;
@@ -92,6 +103,7 @@ function rowToSpace(row: SpaceRow, sections: SpaceSection[] = []): SpaceConfig {
     keycloakGroup: row.keycloak_group,
     driveFolderId: row.drive_folder_id,
     calendarId: row.calendar_id ?? undefined,
+    icalUrl: row.ical_url ?? undefined,
     hierarchyCategory: row.hierarchy_category,
     uploadGroups: JSON.parse(row.upload_groups) as string[],
     sortOrder: row.sort_order,
@@ -153,6 +165,7 @@ export async function upsertSpace(
     keycloak_group: payload.keycloakGroup,
     drive_folder_id: payload.driveFolderId,
     calendar_id: payload.calendarId ?? null,
+    ical_url: payload.icalUrl ?? null,
     hierarchy_category: payload.hierarchyCategory,
     upload_groups: JSON.stringify(payload.uploadGroups),
     sort_order: payload.sortOrder,

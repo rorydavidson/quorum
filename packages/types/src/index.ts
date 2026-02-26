@@ -24,7 +24,8 @@ export interface SpaceConfig {
   description?: string;
   keycloakGroup: string;       // e.g. "/board-members"
   driveFolderId: string;       // Google Drive folder ID (default / legacy section)
-  calendarId?: string;         // Google Calendar ID (optional)
+  calendarId?: string;         // Google Calendar ID — used with SA credentials or public calendars
+  icalUrl?: string;            // Direct iCal/ICS feed URL — works without any Google auth
   hierarchyCategory: string;   // e.g. "Board Level", "Working Groups"
   uploadGroups: string[];      // Keycloak groups allowed to upload
   sortOrder: number;
@@ -75,6 +76,7 @@ export interface UpsertSpacePayload {
   keycloakGroup: string;
   driveFolderId: string;
   calendarId?: string;
+  icalUrl?: string;
   hierarchyCategory: string;
   uploadGroups: string[];
   sortOrder: number;

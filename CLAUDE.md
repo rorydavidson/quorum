@@ -356,9 +356,9 @@ See `plan.md` for detailed tasks per phase. Summary:
 | 2 | Auth layer (Keycloak OIDC) | `[x] DONE` |
 | 3 | Core UI shell | `[x] DONE` |
 | 4 | Document spaces (Drive) | `[x] DONE` |
-| 5 | Calendar widget | `[ ] TODO` |
+| 5 | Calendar widget | `[x] DONE` |
 | 6 | Unified search | `[ ] TODO` |
-| 7 | Admin dashboard | `[ ] TODO` |
+| 7 | Admin dashboard | `[x] TODO` |
 | 8 | Official Records / Snapshots | `[ ] TODO` |
 | 9 | Upload functionality | `[ ] TODO` |
 | 10 | AWS deployment | `[ ] TODO` |

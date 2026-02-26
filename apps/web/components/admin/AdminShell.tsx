@@ -30,6 +30,7 @@ interface SpaceFormData {
   keycloakGroup: string;
   driveFolderId: string;
   calendarId: string;
+  icalUrl: string;
   hierarchyCategory: string;
   uploadGroups: string; // comma-separated
   sortOrder: string;
@@ -45,7 +46,7 @@ interface SectionFormData {
 
 const EMPTY_SPACE_FORM: SpaceFormData = {
   id: '', name: '', description: '', keycloakGroup: '', driveFolderId: '',
-  calendarId: '', hierarchyCategory: '', uploadGroups: '', sortOrder: '0',
+  calendarId: '', icalUrl: '', hierarchyCategory: '', uploadGroups: '', sortOrder: '0',
 };
 
 const EMPTY_SECTION_FORM: SectionFormData = {
@@ -64,6 +65,7 @@ function spaceToForm(s: SpaceConfig): SpaceFormData {
     keycloakGroup: s.keycloakGroup,
     driveFolderId: s.driveFolderId,
     calendarId: s.calendarId ?? '',
+    icalUrl: s.icalUrl ?? '',
     hierarchyCategory: s.hierarchyCategory,
     uploadGroups: s.uploadGroups.join(', '),
     sortOrder: String(s.sortOrder),
@@ -181,6 +183,7 @@ export function AdminShell({ initialSpaces }: Props) {
         keycloakGroup: spaceForm.keycloakGroup.trim(),
         driveFolderId: spaceForm.driveFolderId.trim(),
         calendarId: spaceForm.calendarId.trim() || undefined,
+        icalUrl: spaceForm.icalUrl.trim() || undefined,
         hierarchyCategory: spaceForm.hierarchyCategory.trim(),
         uploadGroups: spaceForm.uploadGroups.split(',').map((g) => g.trim()).filter(Boolean),
         sortOrder: parseInt(spaceForm.sortOrder, 10) || 0,
@@ -383,12 +386,27 @@ export function AdminShell({ initialSpaces }: Props) {
             />
           </FormField>
 
-          <FormField label="Google Calendar ID" hint="Optional — links meeting events to this space">
+          <FormField
+            label="Google Calendar ID"
+            hint="Optional — use with Google Service Account credentials (private calendars)"
+          >
             <input
               className={inputCls}
               value={spaceForm.calendarId}
               onChange={(e) => setSpaceForm({ ...spaceForm, calendarId: e.target.value })}
               placeholder="c_abc123@group.calendar.google.com"
+            />
+          </FormField>
+
+          <FormField
+            label="iCal / ICS Feed URL"
+            hint="Optional — paste any public iCal URL (Google, Outlook, Confluence, etc.). Works without credentials."
+          >
+            <input
+              className={inputCls}
+              value={spaceForm.icalUrl}
+              onChange={(e) => setSpaceForm({ ...spaceForm, icalUrl: e.target.value })}
+              placeholder="https://calendar.google.com/calendar/ical/…/public/basic.ics"
             />
           </FormField>
 
