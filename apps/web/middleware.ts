@@ -36,9 +36,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Dev bypass — inject a fake admin user without hitting the BFF or Keycloak
   if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_BYPASS === 'true') {
-    const response = NextResponse.next();
-    response.headers.set('x-quorum-user', DEV_USER);
-    return response;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-quorum-user', DEV_USER);
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Check session with BFF — forward the session cookie so BFF can read it
@@ -74,13 +74,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Session valid — pass the user as a request header so server components can read it
-  // without making another BFF call
-  const response = NextResponse.next();
+  // Session valid — pass the user as a REQUEST header so server components can read it
+  // via `headers()` from 'next/headers' without making another BFF call.
+  // IMPORTANT: Must use NextResponse.next({ request: { headers } }) — setting headers
+  // on the *response* object sends them to the browser, not to server components.
+  const requestHeaders = new Headers(request.headers);
   if (userHeader) {
-    response.headers.set('x-quorum-user', userHeader);
+    requestHeaders.set('x-quorum-user', userHeader);
   }
-  return response;
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

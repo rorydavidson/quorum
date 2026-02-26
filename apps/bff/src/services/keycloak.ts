@@ -80,12 +80,46 @@ export async function exchangeCodeForTokens(
 // Parse ID token claims → SessionUser
 // ---------------------------------------------------------------------------
 
+/**
+ * Decode a JWT payload without re-verifying the signature.
+ * Safe here because the token was just validated by openid-client during
+ * the authorization code exchange — we only need the extra claims.
+ */
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  try {
+    const payload = jwt.split('.')[1];
+    if (!payload) return {};
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 export function parseIdToken(tokenSet: TokenSet): SessionUser {
   const claims = tokenSet.claims();
 
-  // Keycloak puts groups in a custom claim — shape depends on realm mapper config.
-  // Typical values: ["/board-members", "/secretariat"] or ["board-members"]
-  const rawGroups = (claims['groups'] as string[] | undefined) ?? [];
+  // 1. Realm groups — populated by a Keycloak "Group Membership" mapper.
+  //    Typical values: ["/board-members", "secretariat"]
+  const idGroups = (claims['groups'] as string[] | undefined) ?? [];
+
+  // 2. Client roles — in Keycloak, client-specific roles live in the ACCESS token
+  //    under resource_access.{clientId}.roles, NOT in the ID token groups claim.
+  //    Decode the access token payload (already verified; safe to read claims).
+  const accessPayload = tokenSet.access_token
+    ? decodeJwtPayload(tokenSet.access_token)
+    : {};
+
+  const resourceAccess = accessPayload['resource_access'] as
+    | Record<string, { roles?: string[] }>
+    | undefined;
+  const clientRoles = resourceAccess?.[CLIENT_ID]?.roles ?? [];
+
+  // 3. Realm roles — realm_access.roles in the access token (extra coverage)
+  const realmAccess = accessPayload['realm_access'] as { roles?: string[] } | undefined;
+  const realmRoles = realmAccess?.roles ?? [];
+
+  // Merge all three sources, de-duplicate
+  const groups = [...new Set([...idGroups, ...clientRoles, ...realmRoles])];
 
   return {
     sub:         claims.sub,
@@ -93,7 +127,7 @@ export function parseIdToken(tokenSet: TokenSet): SessionUser {
     name:        (claims.name as string | undefined)        ?? '',
     given_name:  (claims.given_name as string | undefined)  ?? '',
     family_name: (claims.family_name as string | undefined) ?? '',
-    groups:      rawGroups,
+    groups,
   };
 }
 
