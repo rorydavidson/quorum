@@ -124,8 +124,12 @@ router.get('/:spaceId/:fileId/download', async (req: Request, res: Response): Pr
 
   try {
     const { stream, mimeType, name } = await downloadFile(String(req.params.fileId));
-    // inline so PDFs open in the browser / PDF viewer rather than triggering a download
-    const disposition = mimeType === 'application/pdf' ? 'inline' : 'attachment';
+    // ?download=1 → force browser save-as dialog (attachment) regardless of type.
+    // Without the flag: PDFs stream inline (so the in-portal PDF viewer can fetch them);
+    // all other types are always forced to attachment.
+    const forceDownload = req.query.download === '1' || req.query.download === 'true';
+    const disposition =
+      forceDownload || mimeType !== 'application/pdf' ? 'attachment' : 'inline';
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(name)}"`);
     stream.pipe(res);

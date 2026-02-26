@@ -1,6 +1,7 @@
 import type { SessionUser } from '@snomed/types';
 import { Sidebar } from './Sidebar';
 import { MobileHeader } from './MobileHeader';
+import { SearchBar } from '@/components/search/SearchBar';
 
 interface ShellProps {
   user: SessionUser | null;
@@ -30,6 +31,9 @@ export function Shell({ user, children }: ShellProps) {
           {children}
         </main>
       </div>
+
+      {/* Global ⌘K search palette — always mounted so keyboard listener is registered */}
+      <SearchBar />
     </div>
   );
 }

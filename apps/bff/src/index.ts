@@ -11,6 +11,7 @@ import authRouter from './routes/auth.js';
 import documentsRouter from './routes/documents.js';
 import adminRouter from './routes/admin.js';
 import calendarRouter from './routes/calendar.js';
+import searchRouter from './routes/search.js';
 
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
@@ -56,9 +57,7 @@ app.use('/auth', authRouter);
 app.use('/documents', documentsRouter);
 app.use('/admin', adminRouter);
 app.use('/calendar', calendarRouter);
-
-// Placeholder routes — implemented in future phases
-// app.use('/search', searchRouter);
+app.use('/search', searchRouter);
 
 // ---------------------------------------------------------------------------
 // 404 fallback

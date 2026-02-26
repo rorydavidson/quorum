@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -86,8 +86,18 @@ export async function getSectionFiles(
  * Used as the `href` on download links and as the `url` passed to PDFViewer.
  * The Next.js API route at /api/documents/[...path] proxies to BFF.
  */
+/** URL for streaming a file inline (used by the PDF viewer). */
 export function fileDownloadUrl(spaceId: string, fileId: string): string {
   return `/api/documents/${spaceId}/${fileId}/download`;
+}
+
+/**
+ * URL that forces Content-Disposition: attachment so the browser opens a
+ * save-as dialog. Use this for explicit download buttons.
+ * Google Docs/Sheets/Slides are exported as PDF by the BFF before download.
+ */
+export function fileForceDownloadUrl(spaceId: string, fileId: string): string {
+  return `/api/documents/${spaceId}/${fileId}/download?download=1`;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +131,26 @@ export async function getSpaceEvents(
 ): Promise<CalendarEvent[]> {
   return bffFetch<CalendarEvent[]>(
     `/calendar?spaceId=${encodeURIComponent(spaceId)}&limit=${limit}&days=${days}`,
+    { cookie, cache: 'no-store' }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+/**
+ * Unified search across Drive files and calendar events.
+ * Call from server components — pass the incoming cookie header.
+ */
+export async function searchAll(
+  q: string,
+  cookie: string,
+  limit = 20
+): Promise<SearchResult[]> {
+  if (q.trim().length < 2) return [];
+  return bffFetch<SearchResult[]>(
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}`,
     { cookie, cache: 'no-store' }
   );
 }

@@ -205,6 +205,40 @@ export async function downloadFile(fileId: string): Promise<{
 }
 
 /**
+ * Full-text search across files in the given Drive folder IDs.
+ * Uses Google Drive's `fullText contains` operator which searches file names and content.
+ * In mock mode, filters MOCK_FILES by name.
+ */
+export async function searchFilesInFolders(
+  folderIds: string[],
+  query: string,
+  maxResults = 20
+): Promise<DriveFile[]> {
+  if (folderIds.length === 0) return [];
+
+  if (isMockMode()) {
+    const ql = query.toLowerCase();
+    return MOCK_FILES.filter((f) => f.name.toLowerCase().includes(ql)).slice(0, maxResults);
+  }
+
+  // Sanitize: escape backslashes and single quotes for Drive query syntax
+  const sanitized = query.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  // Build the Drive query — files in any of the given folders matching the query
+  const parentsClauses = folderIds.map((id) => `'${id}' in parents`).join(' or ');
+  const q = `(${parentsClauses}) and fullText contains '${sanitized}' and trashed = false`;
+
+  const res = await drive().files.list({
+    q,
+    fields: 'files(id, name, mimeType, size, createdTime, modifiedTime, webViewLink)',
+    orderBy: 'modifiedTime desc',
+    pageSize: maxResults,
+  });
+
+  return (res.data.files ?? []).map(mapFile);
+}
+
+/**
  * Check whether the Drive service is reachable (used at startup).
  */
 export async function checkDriveAccess(): Promise<boolean> {

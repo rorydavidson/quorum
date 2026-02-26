@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download } from 'lucide-react';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -10,34 +10,129 @@ import 'react-pdf/dist/Page/TextLayer.css';
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
+  /** Inline stream URL (no ?download=1) — used to fetch the PDF content. */
   url: string;
+  /** Force-download URL (with ?download=1) — used for the Download button. */
+  downloadUrl: string;
   filename: string;
   onClose: () => void;
 }
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
+export function PDFViewer({ url, downloadUrl, filename, onClose }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [zoomIndex, setZoomIndex] = useState(2); // default: 1.0
+  const [zoomIndex, setZoomIndex] = useState(2); // default: 1.0 (100%)
   const [loadError, setLoadError] = useState(false);
+
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  // One ref per rendered page wrapper — used for scroll-to-page
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const scale = ZOOM_STEPS[zoomIndex];
 
-  const onDocumentLoad = useCallback(({ numPages }: { numPages: number }) => {
-    setNumPages(numPages);
+  // ---------------------------------------------------------------------------
+  // Document load callbacks
+  // ---------------------------------------------------------------------------
+
+  const onDocumentLoad = useCallback(({ numPages: n }: { numPages: number }) => {
+    setNumPages(n);
     setCurrentPage(1);
+    pageRefs.current = new Array(n).fill(null);
   }, []);
 
   const onDocumentError = useCallback(() => {
     setLoadError(true);
   }, []);
 
-  const prevPage = () => setCurrentPage((p) => Math.max(1, p - 1));
-  const nextPage = () => setCurrentPage((p) => Math.min(numPages, p + 1));
-  const zoomIn = () => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1));
-  const zoomOut = () => setZoomIndex((i) => Math.max(0, i - 1));
+  // ---------------------------------------------------------------------------
+  // Page tracking — update the toolbar counter as the user scrolls
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const scrollEl = scrollAreaRef.current;
+    if (!scrollEl || numPages === 0) return;
+
+    function handleScroll() {
+      const scrollTop = scrollEl!.scrollTop;
+      let closestPage = 1;
+      let closestDist = Infinity;
+
+      pageRefs.current.forEach((el, i) => {
+        if (!el) return;
+        const dist = Math.abs(el.offsetTop - scrollTop);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestPage = i + 1;
+        }
+      });
+
+      setCurrentPage(closestPage);
+    }
+
+    scrollEl.addEventListener('scroll', handleScroll, { passive: true });
+    return () => scrollEl.removeEventListener('scroll', handleScroll);
+  }, [numPages]);
+
+  // ---------------------------------------------------------------------------
+  // Controls
+  // ---------------------------------------------------------------------------
+
+  const zoomIn = useCallback(
+    () => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1)),
+    []
+  );
+  const zoomOut = useCallback(() => setZoomIndex((i) => Math.max(0, i - 1)), []);
+
+  /** Smooth-scroll within the scroll container to a specific page wrapper. */
+  const scrollToPage = useCallback((pageNum: number) => {
+    const el = pageRefs.current[pageNum - 1];
+    const scrollEl = scrollAreaRef.current;
+    if (el && scrollEl) {
+      // offsetTop is relative to the scroll container
+      const offsetTop = el.offsetTop - 24; // 24px = py-6 top padding gap
+      scrollEl.scrollTo({ top: offsetTop, behavior: 'smooth' });
+    }
+  }, []);
+
+  const prevPage = useCallback(() => {
+    setCurrentPage((p) => {
+      const target = Math.max(1, p - 1);
+      scrollToPage(target);
+      return target;
+    });
+  }, [scrollToPage]);
+
+  const nextPage = useCallback(() => {
+    setCurrentPage((p) => {
+      const target = Math.min(numPages, p + 1);
+      scrollToPage(target);
+      return target;
+    });
+  }, [numPages, scrollToPage]);
+
+  // ---------------------------------------------------------------------------
+  // Keyboard shortcuts (arrow keys, +/-, Esc) while the viewer is open
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      // Don't intercept inside inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextPage();
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prevPage();
+      if (e.key === '+' || e.key === '=') zoomIn();
+      if (e.key === '-') zoomOut();
+    }
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose, nextPage, prevPage, zoomIn, zoomOut]);
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     /* Full-screen overlay */
@@ -47,18 +142,18 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
       aria-modal="true"
       aria-label={`Viewing ${filename}`}
     >
-      {/* Toolbar */}
+      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 flex items-center justify-between gap-2 px-4 h-14 bg-white border-b border-snomed-border">
         {/* Filename */}
-        <span className="text-sm font-medium text-snomed-grey truncate max-w-xs lg:max-w-md">
+        <span className="text-sm font-medium text-snomed-grey truncate max-w-[180px] sm:max-w-xs lg:max-w-md">
           {filename}
         </span>
 
         {/* Controls */}
-        <div className="flex items-center gap-1">
-          {/* Page navigation */}
+        <div className="flex items-center gap-0.5">
+          {/* Page navigation — jumps to page via smooth scroll */}
           {numPages > 0 && (
-            <div className="flex items-center gap-1 mr-2">
+            <div className="flex items-center gap-0.5 mr-2">
               <button
                 onClick={prevPage}
                 disabled={currentPage <= 1}
@@ -67,7 +162,7 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
               >
                 <ChevronLeft size={18} aria-hidden="true" />
               </button>
-              <span className="text-xs text-snomed-grey/70 whitespace-nowrap px-1 tabular-nums">
+              <span className="text-xs text-snomed-grey/70 whitespace-nowrap px-1 tabular-nums select-none">
                 {currentPage} / {numPages}
               </span>
               <button
@@ -81,7 +176,7 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
             </div>
           )}
 
-          {/* Zoom */}
+          {/* Zoom out */}
           <button
             onClick={zoomOut}
             disabled={zoomIndex === 0}
@@ -90,9 +185,12 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
           >
             <ZoomOut size={18} aria-hidden="true" />
           </button>
-          <span className="text-xs text-snomed-grey/70 w-10 text-center tabular-nums">
+
+          <span className="text-xs text-snomed-grey/70 w-10 text-center tabular-nums select-none">
             {Math.round(scale * 100)}%
           </span>
+
+          {/* Zoom in */}
           <button
             onClick={zoomIn}
             disabled={zoomIndex === ZOOM_STEPS.length - 1}
@@ -102,10 +200,9 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
             <ZoomIn size={18} aria-hidden="true" />
           </button>
 
-          {/* Download */}
+          {/* Download — uses the force-attachment URL; browser opens save-as dialog */}
           <a
-            href={url}
-            download={filename}
+            href={downloadUrl}
             aria-label="Download file"
             className="flex items-center justify-center w-9 h-9 rounded-lg text-snomed-grey hover:bg-gray-100 active:bg-gray-200 transition-colors ml-1"
           >
@@ -123,14 +220,16 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
         </div>
       </div>
 
-      {/* PDF canvas area */}
-      <div className="flex-1 overflow-auto flex justify-center bg-gray-700 py-6 px-4">
+      {/* ── Scrollable PDF area — all pages rendered vertically ─────────────── */}
+      <div
+        ref={scrollAreaRef}
+        className="flex-1 overflow-y-auto overflow-x-auto bg-gray-700 py-6"
+      >
         {loadError ? (
           <div className="flex flex-col items-center justify-center text-white gap-3 py-20">
-            <p className="text-base font-medium">Failed to load PDF</p>
+            <p className="text-base font-medium">Failed to load document</p>
             <a
-              href={url}
-              download={filename}
+              href={downloadUrl}
               className="text-sm underline text-snomed-blue"
             >
               Download instead
@@ -143,13 +242,26 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
             onLoadError={onDocumentError}
             loading={<PDFSkeleton />}
           >
-            <Page
-              pageNumber={currentPage}
-              scale={scale}
-              renderTextLayer
-              renderAnnotationLayer
-              className="shadow-2xl"
-            />
+            {/* All pages stacked vertically — natural scroll on all devices including iPadOS */}
+            <div className="flex flex-col items-center gap-4 px-4">
+              {Array.from({ length: numPages }, (_, i) => (
+                <div
+                  key={i}
+                  ref={(el) => {
+                    pageRefs.current[i] = el;
+                  }}
+                >
+                  <Page
+                    pageNumber={i + 1}
+                    scale={scale}
+                    renderTextLayer
+                    renderAnnotationLayer
+                    className="shadow-2xl"
+                    loading={<PageSkeleton scale={scale} />}
+                  />
+                </div>
+              ))}
+            </div>
           </Document>
         )}
       </div>
@@ -157,8 +269,32 @@ export function PDFViewer({ url, filename, onClose }: PDFViewerProps) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Skeleton loaders
+// ---------------------------------------------------------------------------
+
+/** Shown while the PDF document is still being parsed. */
 function PDFSkeleton() {
   return (
-    <div className="w-[612px] max-w-full bg-white animate-pulse rounded shadow-2xl" style={{ height: 792 }} />
+    <div className="flex flex-col items-center gap-4 px-4" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="bg-white animate-pulse rounded shadow-2xl"
+          style={{ width: 612, maxWidth: '90vw', height: 792 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Shown while an individual page is rendering (after the document is parsed). */
+function PageSkeleton({ scale }: { scale: number }) {
+  return (
+    <div
+      className="bg-white animate-pulse rounded shadow-2xl"
+      style={{ width: Math.round(612 * scale), height: Math.round(792 * scale) }}
+      aria-hidden="true"
+    />
   );
 }

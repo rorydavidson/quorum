@@ -4,7 +4,7 @@ import { useState, useCallback, lazy, Suspense } from 'react';
 import { Download, FileSearch, Star } from 'lucide-react';
 import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
-import { fileDownloadUrl } from '@/lib/api-client';
+import { fileDownloadUrl, fileForceDownloadUrl } from '@/lib/api-client';
 
 // Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
 const PDFViewer = lazy(() =>
@@ -120,9 +120,9 @@ export function DocumentList({ spaceId, files }: Props) {
                   className="px-4 py-3"
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {/* ?download=1 forces Content-Disposition: attachment — reliable on Safari / iPadOS */}
                   <a
-                    href={fileDownloadUrl(spaceId, file.id)}
-                    download={file.name}
+                    href={fileForceDownloadUrl(spaceId, file.id)}
                     aria-label={`Download ${file.name}`}
                     className="flex items-center justify-center w-9 h-9 rounded-lg text-snomed-grey/50 hover:text-snomed-blue hover:bg-snomed-blue-light active:bg-snomed-blue-light transition-colors"
                   >
@@ -161,8 +161,7 @@ export function DocumentList({ spaceId, files }: Props) {
               )}
             </div>
             <a
-              href={fileDownloadUrl(spaceId, file.id)}
-              download={file.name}
+              href={fileForceDownloadUrl(spaceId, file.id)}
               aria-label={`Download ${file.name}`}
               onClick={(e) => e.stopPropagation()}
               className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-snomed-blue hover:bg-snomed-blue-light active:bg-snomed-blue-light transition-colors"
@@ -178,6 +177,7 @@ export function DocumentList({ spaceId, files }: Props) {
         <Suspense fallback={null}>
           <PDFViewer
             url={fileDownloadUrl(spaceId, viewingFile.id)}
+            downloadUrl={fileForceDownloadUrl(spaceId, viewingFile.id)}
             filename={viewingFile.name}
             onClose={closeViewer}
           />
