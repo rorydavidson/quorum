@@ -353,7 +353,7 @@ See `plan.md` for detailed tasks per phase. Summary:
 | Phase | Name | Status |
 |---|---|---|
 | 1 | Monorepo scaffolding | `[x] DONE` |
-| 2 | Auth layer (Keycloak OIDC) | `[ ] TODO` |
+| 2 | Auth layer (Keycloak OIDC) | `[x] DONE` |
 | 3 | Core UI shell | `[ ] TODO` |
 | 4 | Document spaces (Drive) | `[ ] TODO` |
 | 5 | Calendar widget | `[ ] TODO` |

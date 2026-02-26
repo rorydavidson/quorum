@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express, { type Express } from 'express';
 import cors from 'cors';
 import session from 'express-session';
+import { initKeycloak } from './services/keycloak.js';
+import authRouter from './routes/auth.js';
 
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
@@ -43,8 +45,9 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'bff', timestamp: new Date().toISOString() });
 });
 
-// Placeholder routes — implemented in Phase 2+
-// app.use('/auth', authRouter);
+app.use('/auth', authRouter);
+
+// Placeholder routes — implemented in Phase 3+
 // app.use('/documents', documentsRouter);
 // app.use('/calendar', calendarRouter);
 // app.use('/search', searchRouter);
@@ -59,11 +62,21 @@ app.use((_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Start
+// Start — initialise Keycloak before accepting traffic
 // ---------------------------------------------------------------------------
 
-app.listen(PORT, () => {
-  console.log(`BFF running on http://localhost:${PORT}`);
-});
+async function start(): Promise<void> {
+  try {
+    await initKeycloak();
+  } catch (err) {
+    console.warn('[startup] Keycloak discovery failed — running without auth (check env vars):', (err as Error).message);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`BFF running on http://localhost:${PORT}`);
+  });
+}
+
+start();
 
 export default app;
