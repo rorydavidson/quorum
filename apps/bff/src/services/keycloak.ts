@@ -114,12 +114,13 @@ export function parseIdToken(tokenSet: TokenSet): SessionUser {
     | undefined;
   const clientRoles = resourceAccess?.[CLIENT_ID]?.roles ?? [];
 
-  // 3. Realm roles — realm_access.roles in the access token (extra coverage)
-  const realmAccess = accessPayload['realm_access'] as { roles?: string[] } | undefined;
-  const realmRoles = realmAccess?.roles ?? [];
+  // NOTE: We intentionally do NOT include realm_access.roles here.
+  // Those are Keycloak's internal system roles (offline_access, uma_authorization,
+  // composite admin roles, etc.) and must not be used for portal RBAC.
+  // Only realm GROUP membership (idGroups) and quorum client roles (clientRoles) are relevant.
 
-  // Merge all three sources, de-duplicate
-  const groups = [...new Set([...idGroups, ...clientRoles, ...realmRoles])];
+  // Merge and de-duplicate
+  const groups = [...new Set([...idGroups, ...clientRoles])];
 
   return {
     sub:         claims.sub,
