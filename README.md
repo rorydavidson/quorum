@@ -1,20 +1,22 @@
-# Quorum — An Online Governance Portal
+# Quorum — Online Governance Portal
 
 A bespoke governance portal replacing use of services like Atlassian Confluence for an organisation's governance bodies. Built for multiple devices with a nod to iPad use, with Keycloak SSO, Google Drive document surfacing, and role-based access control.
 
 ---
 
-## Table of Contents
+## Features
 
-1. [Architecture Overview](#architecture-overview)
-2. [Prerequisites](#prerequisites)
-3. [Repository Structure](#repository-structure)
-4. [Keycloak Setup](#keycloak-setup)
-5. [Google Cloud Setup](#google-cloud-setup)
-6. [Environment Variables](#environment-variables)
-7. [Local Development](#local-development)
-8. [Admin: Configuring Spaces](#admin-configuring-spaces)
-9. [Deployment](#deployment)
+- **Public landing page** with SSO sign-in button
+- **Keycloak OIDC authentication** — full authorization code flow, httpOnly session cookie, group-based RBAC
+- **Document spaces** — each governance group gets a space backed by a Google Drive folder; supports nested sections (e.g. Agendas, Minutes, Board Papers)
+- **Contextual space sidebar** — when inside a space, a secondary sidebar shows overview, document sections, and calendar links
+- **File upload** — authorised users (per-space upload groups) can upload documents directly to the Drive folder from the portal
+- **In-portal PDF viewer** — view PDFs without leaving the browser; avoids iOS redirecting to external apps
+- **Calendar integration** — upcoming meetings per space via Google Calendar API or iCal URL
+- **Unified search** — full-text search across Drive documents and calendar events via ⌘K command palette
+- **Admin dashboard** — portal admins can create and configure spaces and document sections (no code changes needed)
+- **Official Records** — files prefixed with `_OFFICIAL_RECORD_` are tagged distinctly in listings and search
+- **Mock mode** — runs fully without Google credentials, using sample data, for UI development
 
 ---
 
@@ -25,8 +27,9 @@ Browser / iPad
       │
       ▼
 Next.js web app (port 3000)
+  · Public landing page (no auth required)
   · App Router SSR pages
-  · Middleware: validates session on every request
+  · Middleware: validates session on every protected request
   · API routes: thin proxies to BFF (no direct browser→BFF calls)
       │
       ▼
@@ -36,13 +39,27 @@ BFF / Backend-for-Frontend (port 3001)
   · Calls Google APIs via Service Account (credentials never in browser)
   · Stores space/section config in SQLite (dev) or PostgreSQL (prod)
       │
-      ├──► Keycloak (snoauth.ihtsdotools.org) — OIDC auth
-      ├──► Google Drive API — list & stream documents
-      ├──► Google Calendar API — upcoming meetings
+      ├──► Keycloak — OIDC auth
+      ├──► Google Drive API — list, search & stream documents; upload
+      ├──► Google Calendar API / iCal — upcoming meetings
       └──► SQLite / PostgreSQL — space configuration
 ```
 
 **Security principle:** Keycloak tokens and Google Service Account credentials never leave the BFF. The browser only holds an httpOnly session cookie.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Repository Structure](#repository-structure)
+3. [Keycloak Setup](#keycloak-setup)
+4. [Google Cloud Setup](#google-cloud-setup)
+5. [Environment Variables](#environment-variables)
+6. [Local Development](#local-development)
+7. [Admin: Configuring Spaces](#admin-configuring-spaces)
+8. [Deployment](#deployment)
+9. [Security Notes](#security-notes)
 
 ---
 
@@ -52,7 +69,7 @@ BFF / Backend-for-Frontend (port 3001)
 - **pnpm** ≥ 9 (`npm install -g pnpm`)
 - Access to a **Keycloak** realm with admin rights
 - A **Google Cloud** project with Drive API and Calendar API enabled
-- A Google Cloud **Service Account** with domain-wide delegation (or shared Drive access)
+- A Google Cloud **Service Account** with access to your Shared Drives
 
 ---
 
@@ -62,29 +79,47 @@ BFF / Backend-for-Frontend (port 3001)
 quorum/
 ├── apps/
 │   ├── web/                    # Next.js 15 frontend
-│   │   ├── app/                # App Router pages
-│   │   │   ├── (auth)/         # Login redirect, callback
-│   │   │   ├── (portal)/       # Protected pages (dashboard, spaces, admin)
-│   │   │   └── api/            # Next.js API routes (proxy to BFF)
-│   │   ├── components/         # React components
+│   │   ├── app/
+│   │   │   ├── page.tsx        # Public landing page
+│   │   │   ├── (portal)/       # Protected pages (auth-guarded by middleware)
+│   │   │   │   ├── dashboard/  # Home: upcoming events + space quick-links
+│   │   │   │   ├── spaces/
+│   │   │   │   │   ├── page.tsx              # All accessible spaces
+│   │   │   │   │   └── [spaceId]/
+│   │   │   │   │       ├── layout.tsx        # Space sidebar injection
+│   │   │   │   │       ├── page.tsx          # Space overview
+│   │   │   │   │       ├── documents/        # Default folder & section pages
+│   │   │   │   │       └── calendar/         # Space calendar
+│   │   │   │   ├── search/     # Unified search results
+│   │   │   │   └── admin/      # Admin dashboard (portal_admin only)
+│   │   │   └── api/            # Next.js API routes (proxies to BFF)
+│   │   ├── components/
+│   │   │   ├── layout/         # Shell, Sidebar, SpaceNav, MobileHeader, NavDrawer
+│   │   │   ├── documents/      # DocumentList, PDFViewer, UploadButton
+│   │   │   ├── calendar/       # CalendarWidget, EventCard
+│   │   │   ├── search/         # SearchBar (⌘K palette), SearchInput
+│   │   │   └── admin/          # AdminShell (full CRUD UI)
 │   │   ├── lib/
-│   │   │   ├── auth.ts         # Session helpers, group checks
+│   │   │   ├── auth.ts         # getUser(), isAdmin() — reads middleware header
 │   │   │   └── api-client.ts   # Typed BFF fetch wrapper
-│   │   └── middleware.ts        # Auth guard on all portal routes
+│   │   └── middleware.ts       # Auth guard; / and /api/auth are public
 │   │
 │   └── bff/                    # Backend for Frontend (Express)
 │       └── src/
 │           ├── routes/
-│           │   ├── auth.ts      # /auth/login, /auth/callback, /auth/logout
-│           │   ├── documents.ts # /documents/:spaceId — list & stream
+│           │   ├── auth.ts      # /auth/login, /auth/callback, /auth/logout, /auth/session
+│           │   ├── documents.ts # /documents/:spaceId — list, download, upload
+│           │   ├── calendar.ts  # /calendar — events via Google Calendar or iCal
+│           │   ├── search.ts    # /search — unified Drive + calendar search
 │           │   └── admin.ts     # /admin — CRUD for spaces/sections
 │           └── services/
-│               ├── keycloak.ts  # OIDC token exchange & verification
+│               ├── keycloak.ts  # OIDC token exchange & JWKS verification
 │               ├── drive.ts     # Google Drive Service Account client
+│               ├── calendar.ts  # Google Calendar + node-ical client
 │               └── db.ts        # Knex + SQLite/Postgres config store
 │
 └── packages/
-    └── types/                  # Shared TypeScript types
+    └── types/                  # Shared TypeScript types (SessionUser, SpaceConfig, etc.)
 ```
 
 ---
@@ -106,7 +141,7 @@ In your Keycloak Admin Console (`https://<your-keycloak>/admin`):
 ### 2. Configure Capability Config
 
 5. Enable:
-   - ✅ **Client authentication** (this makes it a confidential client — required for server-side token exchange)
+   - ✅ **Client authentication** (confidential client — required for server-side token exchange)
    - ✅ **Standard flow** (Authorization Code flow)
    - ❌ Direct access grants — disable unless needed for testing
 6. Click **Next**
@@ -161,8 +196,8 @@ Create these groups in **Groups** (at minimum):
 
 | Group name | Purpose |
 |---|---|
-| `portal_admin` | Full admin dashboard access |
-| `secretariat` | (Optional) Document upload permission |
+| `portal_admin` | Full admin dashboard access + all spaces |
+| `secretariat` | (Optional) Default upload-permission group |
 | Your governance groups | e.g. `board-members`, `general-assembly` |
 
 Assign users to groups as appropriate.
@@ -180,7 +215,7 @@ Confirm this URL is reachable from your BFF server before deploying.
 
 ## Google Cloud Setup
 
-The BFF uses a **Service Account** with the Google Drive API (and optionally Calendar API) to list and stream documents. The service account credentials are only ever held in the BFF environment — they never reach the browser.
+The BFF uses a **Service Account** to access the Google Drive API and optionally the Calendar API. Credentials are only ever held in the BFF environment — they never reach the browser.
 
 ### 1. Create or Select a Project
 
@@ -193,7 +228,7 @@ The BFF uses a **Service Account** with the Google Drive API (and optionally Cal
 1. Go to **APIs & Services** → **Library**
 2. Search for and enable:
    - **Google Drive API**
-   - **Google Calendar API** (for Phase 5, if using calendar integration)
+   - **Google Calendar API** (if using calendar integration)
 
 ### 3. Create a Service Account
 
@@ -214,85 +249,60 @@ The BFF uses a **Service Account** with the Google Drive API (and optionally Cal
 4. Select **JSON** → **Create**
 5. A JSON file downloads automatically — keep it safe, **do not commit it to git**
 
-The JSON file looks like:
-
-```json
-{
-  "type": "service_account",
-  "project_id": "org-quorum",
-  "private_key_id": "abc123...",
-  "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n",
-  "client_email": "quorum-drive-reader@org-quorum.iam.gserviceaccount.com",
-  "client_id": "...",
-  ...
-}
-```
-
 From this file, extract:
 
 - `client_email` → `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `private_key` → `GOOGLE_PRIVATE_KEY` (see formatting note below)
 - `project_id` → `GOOGLE_PROJECT_ID`
 
-### 5. Grant Drive Folder Access
+### 5. Set Up Shared Drives
 
-The service account needs read access to each Google Drive folder you want to surface in the portal. **Do this for every folder you map to a space or section.**
+> **Important:** Service accounts have no personal Drive storage quota. All Drive folders mapped to spaces **must** reside in a **Shared Drive** (formerly Team Drive). Standard My Drive folders will work for reading but uploads will fail with a quota error.
 
-1. Open **Google Drive** as an admin
-2. Right-click the folder → **Share**
-3. Add the service account email (e.g. `quorum-drive-reader@org-quorum.iam.gserviceaccount.com`)
-4. Set permission to **Viewer**
-5. Untick "Notify people" → **Share**
-
-> **Shared Drives:** If your documents are in a Shared Drive (Team Drive), add the service account as a member of the Shared Drive with **Viewer** or **Content manager** access instead.
+1. In Google Drive, create a Shared Drive (e.g. `Quorum Documents`)
+2. Add the service account email as a member of the Shared Drive with **Content Manager** role (required for upload)
+3. Create sub-folders within the Shared Drive for each space and section
+4. Use the folder IDs from these sub-folders in the Admin dashboard
 
 ### 6. Get Folder IDs
 
 To find a folder's ID:
 1. Open the folder in Google Drive
 2. The URL will be: `https://drive.google.com/drive/folders/<FOLDER_ID>`
-3. Copy the `FOLDER_ID` — you'll enter this in the Admin dashboard when creating spaces/sections
+3. Copy the `FOLDER_ID` — enter this when creating spaces/sections in the Admin dashboard
 
 ### 7. Format the Private Key for .env
 
-The private key in the JSON file contains literal newlines. In a `.env` file, you must escape them as `\n` on a single line:
+The private key in the JSON file contains literal newlines. In a `.env` file, escape them as `\n` on a single line:
 
 ```bash
-# In the JSON file, the key contains actual newlines:
-# "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEo...\n-----END RSA PRIVATE KEY-----\n"
-
 # In .env.local, put it all on one line with literal \n:
 GOOGLE_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEo...\n-----END RSA PRIVATE KEY-----\n"
-```
-
-The BFF automatically converts `\n` back to real newlines at runtime:
-```typescript
-const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 ```
 
 **Quick extraction command** (from the downloaded JSON key file):
 
 ```bash
-# Extract and format the private key for .env
 python3 -c "
 import json, sys
 with open('service-account-key.json') as f:
     data = json.load(f)
 print('GOOGLE_SERVICE_ACCOUNT_EMAIL=' + data['client_email'])
 print('GOOGLE_PROJECT_ID=' + data['project_id'])
-# Escape newlines for .env
 key = data['private_key'].replace('\n', '\\\\n')
 print('GOOGLE_PRIVATE_KEY=\"' + key + '\"')
 "
 ```
 
-### 8. (Optional) Google Calendar Access
+### 8. Google Calendar Access
 
-If you want to surface calendar events in the portal:
+To surface calendar events in the portal, for each calendar:
 
-1. Share each Google Calendar with the service account email (with **View events** permission)
-2. Or, if using Google Workspace, enable **Domain-wide Delegation** on the service account and grant the Calendar API scope `https://www.googleapis.com/auth/calendar.readonly`
-3. Note the **Calendar ID** (found in Google Calendar → Settings → Integrations) for each calendar you want to link to a space
+1. Open **Google Calendar** → Settings (gear icon) → select the calendar
+2. Under **Share with specific people**, add the service account email with **See all event details** permission
+3. Note the **Calendar ID** (under **Integrate calendar**) — you'll enter this in the Admin dashboard when configuring a space
+
+Alternatively, any space can use a public or private **iCal URL** instead of the Google Calendar API — paste it into the **iCal URL** field in the Admin dashboard.
 
 ---
 
@@ -341,6 +351,10 @@ BFF_URL=http://localhost:3001
 
 # Public app name (safe to expose)
 NEXT_PUBLIC_APP_NAME=Quorum
+
+# Development only: skip Keycloak and inject a mock portal_admin user
+# Never set this in production
+# DEV_AUTH_BYPASS=true
 ```
 
 ---
@@ -348,14 +362,14 @@ NEXT_PUBLIC_APP_NAME=Quorum
 ## Local Development
 
 ```bash
-# 1. Install all workspace dependencies
+# 1. Install all workspace dependencies (also compiles native modules e.g. better-sqlite3)
 pnpm install
 
 # 2. Create env files (see above)
-cp apps/bff/.env.example apps/bff/.env.local   # then fill in values
-cp apps/web/.env.example apps/web/.env.local
+#    apps/bff/.env.local  — BFF secrets
+#    apps/web/.env.local  — BFF URL
 
-# 3. Start both services concurrently
+# 3. Build and start both services
 pnpm dev
 #  → Next.js:  http://localhost:3000
 #  → BFF:      http://localhost:3001
@@ -365,9 +379,11 @@ pnpm --filter bff dev
 pnpm --filter web dev
 ```
 
+> `pnpm dev` runs a full build before starting the dev servers to ensure compiled assets and types are up to date.
+
 On first startup the BFF automatically creates the SQLite database and runs schema migrations. No separate migration command is needed in development.
 
-**Without Google credentials configured**, the app runs in **mock mode** — Drive returns sample documents and downloads serve a placeholder PDF. This lets you develop and test the UI without real credentials.
+**Without Google credentials configured**, the app runs in **mock mode** — Drive returns sample documents, downloads serve a placeholder PDF, and calendar events are empty. This lets you develop and test the UI without real credentials. Combine with `DEV_AUTH_BYPASS=true` in `apps/web/.env.local` to skip Keycloak entirely and use an injected `portal_admin` user.
 
 ### Useful Commands
 
@@ -378,18 +394,15 @@ pnpm typecheck
 # Lint all packages
 pnpm lint
 
-# Build for production
+# Build for production (types → bff → web)
 pnpm build
-
-# Seed the database with example spaces (if a seed script exists)
-pnpm --filter bff seed
 ```
 
 ---
 
 ## Admin: Configuring Spaces
 
-Once running, log in with a Keycloak account that belongs to the `portal_admin` group, then navigate to `/admin`.
+Log in with a Keycloak account in the `portal_admin` group, then navigate to `/admin`.
 
 ### Create a Space
 
@@ -397,17 +410,18 @@ A **Space** represents a governance group (e.g. "Management Board"). Each space 
 - A **Keycloak group** — controls who can see it
 - A **Google Drive folder ID** — the default document folder
 
-Fields:
 | Field | Description |
 |---|---|
 | ID | URL-safe slug, e.g. `board` |
 | Name | Display name, e.g. `Management Board` |
-| Description | Optional subtitle |
+| Description | Optional subtitle shown on the space page |
 | Keycloak Group | Exact group name/path from Keycloak, e.g. `/board-members` |
-| Drive Folder ID | Paste from Google Drive folder URL |
-| Calendar ID | Optional Google Calendar ID for the meetings panel |
+| Drive Folder ID | Folder ID from a Shared Drive folder URL |
+| Calendar ID | Google Calendar ID for the meetings panel |
+| iCal URL | Alternative to Calendar ID — accepts any iCal feed URL |
+| Upload Groups | Comma-separated groups whose members may upload to this space |
 | Category | Groups spaces in the sidebar, e.g. `Board Level` |
-| Sort Order | Numeric ordering within category |
+| Sort Order | Numeric ordering within the category |
 
 ### Create Document Sections
 
@@ -415,22 +429,26 @@ A **Section** subdivides a space's documents into named categories, each backed 
 
 1. Expand a space in the admin list
 2. Click **Add Section**
-3. Fields:
-   | Field | Description |
-   |---|---|
-   | ID | Slug within the space, e.g. `agendas` |
-   | Name | Display name, e.g. `Agendas` |
-   | Description | Optional |
-   | Drive Folder ID | Separate Drive folder for this category |
-   | Sort Order | Display order within the space |
 
-When sections are configured, the space landing page shows them as a prominent navigation grid. Without sections, a flat document list is shown instead.
+| Field | Description |
+|---|---|
+| ID | Slug within the space, e.g. `agendas` |
+| Name | Display name, e.g. `Agendas` |
+| Description | Optional |
+| Drive Folder ID | Separate Shared Drive folder for this category |
+| Sort Order | Display order within the space |
+
+When sections are configured, the space landing page shows them as a prominent navigation grid and the space sidebar lists them as sub-links under Documents.
+
+### Official Records
+
+Any file whose name begins with `_OFFICIAL_RECORD_` (e.g. `_OFFICIAL_RECORD_2024-12-15_Annual-Report.pdf`) is automatically tagged as an official record in document listings and search results. The prefix is stripped for display.
 
 ---
 
 ## Deployment
 
-> Phase 10 — full deployment guide to follow. Summary:
+> Full deployment infrastructure (Docker, AWS ECS) is planned for Phase 10. Summary of target architecture:
 
 ```
 Local dev
@@ -438,13 +456,16 @@ Local dev
          └──► AWS ECS Fargate
                 · web container  → port 3000
                 · bff container  → port 3001
-                · ALB: /* → web, /api/* → bff
+                · ALB: /* → web, /bff/* → bff
               AWS RDS (PostgreSQL)
               AWS Secrets Manager (Google SA key + Keycloak secret)
-              AWS S3 (Official Record PDF archives)
 ```
 
-For production, set `SESSION_COOKIE_SECURE=true` (cookies sent only over HTTPS) and replace `DATABASE_URL` with a PostgreSQL connection string.
+For production, ensure:
+- `SESSION_COOKIE_NAME` cookie is set with `secure: true` (HTTPS only)
+- `DATABASE_URL` points to a PostgreSQL instance
+- `FRONTEND_ORIGIN` is set to your production domain (BFF CORS)
+- `DEV_AUTH_BYPASS` is **not** set
 
 ---
 
@@ -455,3 +476,4 @@ For production, set `SESSION_COOKIE_SECURE=true` (cookies sent only over HTTPS) 
 - **File downloads** are streamed through the BFF — no pre-signed Drive URLs are issued to the browser.
 - **RBAC** is enforced server-side from the `groups` claim in the Keycloak ID token. Client-supplied group claims are never trusted.
 - **Admin routes** (`/admin`, `/api/admin/*`) require both authentication and `portal_admin` group membership, enforced at the BFF middleware layer.
+- **Upload permissions** are validated server-side against the space's configured `uploadGroups` — the client cannot escalate privileges.
