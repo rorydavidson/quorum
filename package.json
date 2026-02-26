@@ -1,0 +1,14 @@
+{
+  "name": "quorum",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter bff dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm --filter types build && pnpm --filter bff build && pnpm --filter web build",
+    "typecheck": "pnpm --recursive typecheck",
+    "lint": "pnpm --recursive lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+
+# Plan files (local planning only)
+*plan.md
+
+# Dependencies
+node_modules/
+
+# Environment secrets — NEVER commit these
+.env.local
+.env.*.local
+
+# Build outputs
+.next/
+dist/
+out/
+
+# Database
+*.db
+*.db-journal
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# pnpm
+.pnpm-store/

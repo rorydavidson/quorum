@@ -1,0 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-snomed-grey-light text-snomed-grey font-sans antialiased;
+  }
+
+  /* Ensure all interactive elements have minimum touch targets (iOS HIG) */
+  button,
+  a,
+  [role='button'] {
+    @apply min-h-[44px];
+  }
+
+  /* Focus rings — visible for keyboard nav, clean for touch */
+  :focus-visible {
+    @apply outline-none ring-2 ring-snomed-blue ring-offset-2;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-lg border border-snomed-border shadow-sm;
+  }
+}
