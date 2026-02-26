@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { ChevronRight, Folder } from 'lucide-react';
-import { getSectionFiles } from '@/lib/api-client';
+import { getSectionFiles, getUserFromHeaders } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SectionWithFiles } from '@/lib/api-client';
 
@@ -13,6 +13,7 @@ export default async function SectionDocumentsPage({ params }: Props) {
   const { spaceId, sectionId } = await params;
   const headerStore = await headers();
   const cookie = headerStore.get('cookie') ?? '';
+  const user = getUserFromHeaders(headerStore);
 
   let data: SectionWithFiles | null = null;
   let error: string | null = null;
@@ -22,6 +23,16 @@ export default async function SectionDocumentsPage({ params }: Props) {
   } catch (err) {
     error = (err as Error).message;
   }
+
+  const isAdmin = user?.groups.some((g) => g === 'portal_admin' || g === '/portal_admin') ?? false;
+  const canUpload =
+    isAdmin ||
+    (data !== null &&
+      (data.space.uploadGroups ?? []).some((ug) =>
+        user?.groups.some(
+          (g) => g === ug || g === ug.replace(/^\//, '') || `/${g}` === ug
+        )
+      ));
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
@@ -76,7 +87,7 @@ export default async function SectionDocumentsPage({ params }: Props) {
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} files={data.files} />
+          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} />
         </>
       )}
     </div>

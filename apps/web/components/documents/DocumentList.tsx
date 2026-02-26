@@ -5,6 +5,7 @@ import { Download, FileSearch, Star } from 'lucide-react';
 import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
 import { fileDownloadUrl, fileForceDownloadUrl } from '@/lib/api-client';
+import { UploadButton } from './UploadButton';
 
 // Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
 const PDFViewer = lazy(() =>
@@ -14,6 +15,8 @@ const PDFViewer = lazy(() =>
 interface Props {
   spaceId: string;
   files: DriveFile[];
+  /** Show the upload button — only true when the session user is in uploadGroups */
+  canUpload?: boolean;
 }
 
 function isPdf(file: DriveFile): boolean {
@@ -37,7 +40,7 @@ function formatSize(mb?: number): string {
   return `${mb.toFixed(1)} MB`;
 }
 
-export function DocumentList({ spaceId, files }: Props) {
+export function DocumentList({ spaceId, files, canUpload = false }: Props) {
   const [viewingFile, setViewingFile] = useState<DriveFile | null>(null);
 
   const openViewer = useCallback((file: DriveFile) => {
@@ -62,6 +65,13 @@ export function DocumentList({ spaceId, files }: Props) {
 
   return (
     <>
+      {/* Upload button — shown only when the user has upload permission */}
+      {canUpload && (
+        <div className="mb-4 flex justify-end">
+          <UploadButton spaceId={spaceId} />
+        </div>
+      )}
+
       {/* Desktop: table */}
       <div className="hidden sm:block overflow-x-auto rounded-lg border border-snomed-border bg-white shadow-sm">
         <table className="w-full text-sm">

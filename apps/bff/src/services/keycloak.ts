@@ -65,11 +65,13 @@ export function buildAuthParams(): AuthParams {
 export async function exchangeCodeForTokens(
   callbackUrl: string,
   expectedState: string,
+  expectedNonce: string,
 ): Promise<TokenSet> {
   const client = getClient();
   const params = client.callbackParams(callbackUrl);
   const tokenSet = await client.callback(REDIRECT_URI, params, {
     state: expectedState,
+    nonce: expectedNonce,
   });
   return tokenSet;
 }

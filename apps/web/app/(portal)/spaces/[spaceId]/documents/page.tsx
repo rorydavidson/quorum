@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { ChevronRight, FileText } from 'lucide-react';
-import { getSpaceFiles } from '@/lib/api-client';
+import { getSpaceFiles, getUserFromHeaders } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SpaceWithFiles } from '@/lib/api-client';
 
@@ -13,6 +13,7 @@ export default async function SpaceDocumentsPage({ params }: Props) {
   const { spaceId } = await params;
   const headerStore = await headers();
   const cookie = headerStore.get('cookie') ?? '';
+  const user = getUserFromHeaders(headerStore);
 
   let data: SpaceWithFiles | null = null;
   let error: string | null = null;
@@ -22,6 +23,17 @@ export default async function SpaceDocumentsPage({ params }: Props) {
   } catch (err) {
     error = (err as Error).message;
   }
+
+  // Determine upload permission: portal_admin or a member of the space's uploadGroups
+  const isAdmin = user?.groups.some((g) => g === 'portal_admin' || g === '/portal_admin') ?? false;
+  const canUpload =
+    isAdmin ||
+    (data !== null &&
+      (data.space.uploadGroups ?? []).some((ug) =>
+        user?.groups.some(
+          (g) => g === ug || g === ug.replace(/^\//, '') || `/${g}` === ug
+        )
+      ));
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
@@ -71,7 +83,7 @@ export default async function SpaceDocumentsPage({ params }: Props) {
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} files={data.files} />
+          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} />
         </>
       )}
     </div>

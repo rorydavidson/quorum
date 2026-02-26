@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -153,4 +153,84 @@ export async function searchAll(
     `/search?q=${encodeURIComponent(q)}&limit=${limit}`,
     { cookie, cache: 'no-store' }
   );
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers — server-side only
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the session user from the x-quorum-user request header injected by
+ * Next.js middleware. Avoids an extra BFF /auth/session round-trip in server
+ * components that only need user metadata (e.g. for RBAC checks).
+ *
+ * Pass the ReadonlyHeaders from `import { headers } from 'next/headers'`.
+ */
+export function getUserFromHeaders(
+  headerStore: { get(name: string): string | null }
+): SessionUser | null {
+  const raw = headerStore.get('x-quorum-user');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SessionUser;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Upload — client-side (uses XHR for progress reporting)
+// ---------------------------------------------------------------------------
+
+export interface UploadProgress {
+  percent: number; // 0-100
+}
+
+/**
+ * Upload a file to a space's Drive folder.
+ * Returns the newly-created DriveFile on success.
+ * `onProgress` is called periodically with the upload percentage.
+ */
+export function uploadFileToSpace(
+  spaceId: string,
+  file: File,
+  onProgress?: (p: UploadProgress) => void
+): Promise<DriveFile> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/documents/${spaceId}/upload`);
+
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          onProgress({ percent: Math.round((e.loaded / e.total) * 100) });
+        }
+      });
+    }
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 201) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as DriveFile);
+        } catch {
+          reject(new Error('Invalid response from server'));
+        }
+      } else {
+        let message = `Upload failed (${xhr.status})`;
+        try {
+          const body = JSON.parse(xhr.responseText) as { error?: string };
+          if (body.error) message = body.error;
+        } catch { /* ignore */ }
+        reject(new Error(message));
+      }
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+    xhr.send(form);
+  });
 }

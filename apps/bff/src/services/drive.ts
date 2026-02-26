@@ -17,7 +17,7 @@ function getDriveClient() {
   const auth = new google.auth.JWT({
     email,
     key,
-    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    scopes: ['https://www.googleapis.com/auth/drive'],
   });
 
   return google.drive({ version: 'v3', auth });
@@ -236,6 +236,45 @@ export async function searchFilesInFolders(
   });
 
   return (res.data.files ?? []).map(mapFile);
+}
+
+/**
+ * Upload a file buffer into a Drive folder.
+ * Returns the newly-created DriveFile metadata.
+ */
+export async function uploadFile(
+  folderId: string,
+  filename: string,
+  mimeType: string,
+  buffer: Buffer,
+): Promise<DriveFile> {
+  if (isMockMode()) {
+    return {
+      id: `mock-upload-${Date.now()}`,
+      name: filename,
+      mimeType,
+      size: Math.round((buffer.length / 1024 / 1024) * 100) / 100,
+      createdTime: new Date().toISOString(),
+      modifiedTime: new Date().toISOString(),
+      isOfficialRecord: false,
+    };
+  }
+
+  const stream = Readable.from(buffer);
+
+  const res = await drive().files.create({
+    requestBody: {
+      name: filename,
+      parents: [folderId],
+    },
+    media: {
+      mimeType,
+      body: stream,
+    },
+    fields: 'id, name, mimeType, size, createdTime, modifiedTime, webViewLink',
+  });
+
+  return mapFile(res.data);
 }
 
 /**

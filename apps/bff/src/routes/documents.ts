@@ -1,7 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
+import multer from 'multer';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getSpaces, getSpaceById, getSectionById } from '../services/db.js';
-import { listFiles, downloadFile } from '../services/drive.js';
+import { listFiles, downloadFile, uploadFile } from '../services/drive.js';
+
+// multer: store upload in memory so we can stream the buffer to Drive
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
 
 const router: IRouter = Router();
 
@@ -138,5 +145,62 @@ router.get('/:spaceId/:fileId/download', async (req: Request, res: Response): Pr
     res.status(502).json({ error: 'Failed to download file from Drive', code: 'DRIVE_ERROR' });
   }
 });
+
+// ---------------------------------------------------------------------------
+// POST /documents/:spaceId/upload — upload a file to the space's Drive folder
+// ---------------------------------------------------------------------------
+
+function userCanUpload(userGroups: string[], uploadGroups: string[], isAdmin: boolean): boolean {
+  if (isAdmin) return true;
+  return uploadGroups.some((g) =>
+    userGroups.some(
+      (ug) => ug === g || ug === g.replace(/^\//, '') || `/${ug}` === g
+    )
+  );
+}
+
+router.post(
+  '/:spaceId/upload',
+  upload.single('file'),
+  async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const space = await getSpaceById(String(req.params.spaceId));
+
+    if (!space) {
+      res.status(404).json({ error: 'Space not found', code: 'SPACE_NOT_FOUND' });
+      return;
+    }
+
+    // Must be able to access the space AND be in an upload group
+    if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+      res.status(403).json({ error: 'Access denied', code: 'FORBIDDEN' });
+      return;
+    }
+
+    if (!userCanUpload(user.groups, space.uploadGroups ?? [], isAdminUser(user.groups))) {
+      res.status(403).json({ error: 'Upload not permitted', code: 'UPLOAD_FORBIDDEN' });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'No file provided', code: 'NO_FILE' });
+      return;
+    }
+
+    try {
+      const driveFile = await uploadFile(
+        space.driveFolderId,
+        file.originalname,
+        file.mimetype,
+        file.buffer,
+      );
+      res.status(201).json(driveFile);
+    } catch (err) {
+      console.error('[documents] Upload error:', err);
+      res.status(502).json({ error: 'Failed to upload file to Drive', code: 'DRIVE_ERROR' });
+    }
+  }
+);
 
 export default router;

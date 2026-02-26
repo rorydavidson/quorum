@@ -39,15 +39,16 @@ router.get('/login', (req, res) => {
 router.get('/callback', async (req, res) => {
   try {
     const expectedState = req.session.oauthState;
-    if (!expectedState) {
-      res.status(400).json({ error: 'Missing OAuth state', code: 'INVALID_STATE' });
+    const expectedNonce = req.session.oauthNonce;
+    if (!expectedState || !expectedNonce) {
+      res.status(400).json({ error: 'Missing OAuth state or nonce', code: 'INVALID_STATE' });
       return;
     }
 
     // Build full callback URL from the request
     const callbackUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
 
-    const tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState);
+    const tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
     const user = parseIdToken(tokenSet);
 
     // Store user and refresh token in session; clear OAuth state

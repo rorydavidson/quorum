@@ -15,25 +15,39 @@ async function handler(
   const bffPath = `/documents/${path.join('/')}`;
   const bffUrl = `${BFF_URL}${bffPath}${request.nextUrl.search}`;
 
+  // Build forwarded headers — always include cookie for auth
+  const forwardHeaders: Record<string, string> = {
+    cookie: request.headers.get('cookie') ?? '',
+  };
+
+  // For POST (file upload), forward the Content-Type so multer sees the multipart boundary
+  const contentType = request.headers.get('content-type');
+  if (contentType) {
+    forwardHeaders['content-type'] = contentType;
+  }
+
   const bffRes = await fetch(bffUrl, {
     method: request.method,
-    headers: {
-      cookie: request.headers.get('cookie') ?? '',
-    },
+    headers: forwardHeaders,
+    // Forward body for POST/PUT/PATCH; GET/HEAD/DELETE have no body
+    body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+    // Required so Next.js doesn't buffer the streaming multipart body before forwarding
+    // @ts-expect-error — duplex is required for streaming bodies in Node 18+
+    duplex: 'half',
   });
 
-  // For file downloads (binary), stream the body directly
-  const contentType = bffRes.headers.get('content-type') ?? '';
-  const contentDisposition = bffRes.headers.get('content-disposition') ?? '';
+  // Propagate response headers relevant to content type / disposition
+  const resContentType = bffRes.headers.get('content-type') ?? '';
+  const resContentDisposition = bffRes.headers.get('content-disposition') ?? '';
 
-  const headers: HeadersInit = {};
-  if (contentType) headers['content-type'] = contentType;
-  if (contentDisposition) headers['content-disposition'] = contentDisposition;
+  const resHeaders: HeadersInit = {};
+  if (resContentType) resHeaders['content-type'] = resContentType;
+  if (resContentDisposition) resHeaders['content-disposition'] = resContentDisposition;
 
   return new Response(bffRes.body, {
     status: bffRes.status,
-    headers,
+    headers: resHeaders,
   });
 }
 
-export { handler as GET };
+export { handler as GET, handler as POST };
