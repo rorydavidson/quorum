@@ -357,10 +357,10 @@ See `plan.md` for detailed tasks per phase. Summary:
 | 3 | Core UI shell | `[x] DONE` |
 | 4 | Document spaces (Drive) | `[x] DONE` |
 | 5 | Calendar widget | `[x] DONE` |
-| 6 | Unified search | `[x] TODO` |
-| 7 | Admin dashboard | `[x] TODO` |
+| 6 | Unified search | `[x] DONE` |
+| 7 | Admin dashboard | `[x] DONE` |
 | 8 | Official Records / Snapshots | `[ ] TODO` |
-| 9 | Upload functionality | `[x] TODO` |
+| 9 | Upload functionality | `[x] DONE` |
 | 10 | AWS deployment | `[ ] TODO` |
 
 **Update this table as phases complete.**
