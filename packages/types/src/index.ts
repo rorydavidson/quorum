@@ -8,17 +8,27 @@ export interface SessionUser {
   groups: string[];
 }
 
+// A named document section within a space, backed by its own Drive folder
+export interface SpaceSection {
+  id: string;            // e.g. "agendas", "minutes"
+  name: string;          // e.g. "Agendas", "Minutes & Resolutions"
+  description?: string;
+  driveFolderId: string;
+  sortOrder: number;
+}
+
 // Space configuration — stored in DB, managed via Admin dashboard
 export interface SpaceConfig {
   id: string;
   name: string;
   description?: string;
   keycloakGroup: string;       // e.g. "/board-members"
-  driveFolderId: string;       // Google Drive folder ID
+  driveFolderId: string;       // Google Drive folder ID (default / legacy section)
   calendarId?: string;         // Google Calendar ID (optional)
   hierarchyCategory: string;   // e.g. "Board Level", "Working Groups"
   uploadGroups: string[];      // Keycloak groups allowed to upload
   sortOrder: number;
+  sections: SpaceSection[];    // Named document sub-sections (may be empty)
 }
 
 // Document listing entry — from Google Drive

@@ -9,6 +9,7 @@ import { initKeycloak } from './services/keycloak.js';
 import { runMigrations } from './services/db.js';
 import authRouter from './routes/auth.js';
 import documentsRouter from './routes/documents.js';
+import adminRouter from './routes/admin.js';
 
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
@@ -52,11 +53,11 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRouter);
 app.use('/documents', documentsRouter);
+app.use('/admin', adminRouter);
 
 // Placeholder routes — implemented in future phases
 // app.use('/calendar', calendarRouter);
 // app.use('/search', searchRouter);
-// app.use('/admin', adminRouter);
 
 // ---------------------------------------------------------------------------
 // 404 fallback

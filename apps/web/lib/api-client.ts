@@ -1,4 +1,4 @@
-import type { SpaceConfig, DriveFile } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -43,6 +43,12 @@ export interface SpaceWithFiles {
   files: DriveFile[];
 }
 
+export interface SectionWithFiles {
+  space: SpaceConfig;
+  section: SpaceSection;
+  files: DriveFile[];
+}
+
 /**
  * Fetch all spaces accessible to the current user.
  * Call from server components — pass the incoming cookie header.
@@ -56,6 +62,20 @@ export async function getAccessibleSpaces(cookie: string): Promise<SpaceConfig[]
  */
 export async function getSpaceFiles(spaceId: string, cookie: string): Promise<SpaceWithFiles> {
   return bffFetch<SpaceWithFiles>(`/documents/${spaceId}`, {
+    cookie,
+    cache: 'no-store', // always fresh — sections change via admin
+  });
+}
+
+/**
+ * Fetch files for a named section within a space.
+ */
+export async function getSectionFiles(
+  spaceId: string,
+  sectionId: string,
+  cookie: string
+): Promise<SectionWithFiles> {
+  return bffFetch<SectionWithFiles>(`/documents/${spaceId}/sections/${sectionId}`, {
     cookie,
     next: { revalidate: 60 },
   });

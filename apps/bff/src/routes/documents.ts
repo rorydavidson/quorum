@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { getSpaces, getSpaceById } from '../services/db.js';
+import { getSpaces, getSpaceById, getSectionById } from '../services/db.js';
 import { listFiles, downloadFile } from '../services/drive.js';
 
 const router: IRouter = Router();
@@ -43,7 +43,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /documents/:spaceId — list files in a space's Drive folder
+// GET /documents/:spaceId — list files in a space's default Drive folder
 // ---------------------------------------------------------------------------
 
 router.get('/:spaceId', async (req: Request, res: Response): Promise<void> => {
@@ -63,6 +63,41 @@ router.get('/:spaceId', async (req: Request, res: Response): Promise<void> => {
   try {
     const files = await listFiles(space.driveFolderId);
     res.json({ space, files });
+  } catch (err) {
+    console.error('[documents] Drive error:', err);
+    res.status(502).json({ error: 'Failed to list files from Drive', code: 'DRIVE_ERROR' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /documents/:spaceId/sections/:sectionId — list files in a named section
+// ---------------------------------------------------------------------------
+
+router.get('/:spaceId/sections/:sectionId', async (req: Request, res: Response): Promise<void> => {
+  const user = req.session.user!;
+  const spaceId = String(req.params.spaceId);
+  const sectionId = String(req.params.sectionId);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) {
+    res.status(404).json({ error: 'Space not found', code: 'SPACE_NOT_FOUND' });
+    return;
+  }
+
+  if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+    res.status(403).json({ error: 'Access denied', code: 'FORBIDDEN' });
+    return;
+  }
+
+  const section = await getSectionById(spaceId, sectionId);
+  if (!section) {
+    res.status(404).json({ error: 'Section not found', code: 'SECTION_NOT_FOUND' });
+    return;
+  }
+
+  try {
+    const files = await listFiles(section.driveFolderId);
+    res.json({ space, section, files });
   } catch (err) {
     console.error('[documents] Drive error:', err);
     res.status(502).json({ error: 'Failed to list files from Drive', code: 'DRIVE_ERROR' });
