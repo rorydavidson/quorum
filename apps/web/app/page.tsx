@@ -22,18 +22,18 @@ export default function LandingPage() {
           {/* Wordmark */}
           <div className="mb-8">
             <h1 className="text-5xl font-semibold tracking-tight text-snomed-grey mb-2">
-              Quorum
+              SNOMED International Quorum
             </h1>
             <div className="h-1 w-16 bg-snomed-blue rounded-full mx-auto" />
           </div>
 
           {/* Description */}
           <p className="text-lg text-snomed-grey leading-relaxed mb-3">
-            The governance portal for SNOMED International board members,
-            working groups, and secretariat.
+            The governance portal for SNOMED International governance bodies,
+            advisory groups, and working groups.
           </p>
           <p className="text-base text-snomed-grey/70 leading-relaxed mb-12">
-            Access meeting agendas, committee documents, and organisation
+            Access meeting agendas, group documents, and group
             calendars — in one secure, unified place.
           </p>
 
@@ -60,7 +60,7 @@ export default function LandingPage() {
               <path d="m21 2-9.6 9.6" />
               <path d="m15.5 7.5 3 3L22 7l-3-3" />
             </svg>
-            Sign in with SNOMED SSO
+            Sign in with your SNOMED International Account
           </Link>
 
           <p className="mt-5 text-sm text-snomed-grey/50">
