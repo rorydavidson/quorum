@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Download, FileSearch, Star, ArrowLeft } from 'lucide-react';
+import { Download, FileSearch, Star, ArrowLeft, Trash2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
-import { fileDownloadUrl, fileForceDownloadUrl } from '@/lib/api-client';
+import { fileDownloadUrl, fileForceDownloadUrl, deleteFileFromSpace } from '@/lib/api-client';
 import { UploadButton } from './UploadButton';
 
 // Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
@@ -83,6 +83,20 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
     }
   }, [router, searchParams, openViewer, spaceId]);
 
+  const handleDelete = useCallback(async (file: DriveFile) => {
+    if (!window.confirm(`Are you sure you want to delete "${file.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteFileFromSpace(spaceId, file.id);
+      router.refresh();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert(err instanceof Error ? err.message : 'Failed to delete file');
+    }
+  }, [spaceId, router]);
+
   if (files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -134,6 +148,7 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
                 Size
               </th>
               <th className="px-4 py-3 w-16" />
+              {canUpload && <th className="px-4 py-3 w-16" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-snomed-border">
@@ -183,6 +198,17 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
                     <Download size={16} aria-hidden="true" />
                   </a>
                 </td>
+                {canUpload && (
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => handleDelete(file)}
+                      aria-label={`Delete ${file.name}`}
+                      className="flex items-center justify-center w-9 h-9 rounded-lg text-snomed-grey/50 hover:text-red-600 hover:bg-red-50 active:bg-red-100 transition-colors"
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -213,14 +239,28 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
                 </span>
               )}
             </div>
-            <a
-              href={fileForceDownloadUrl(spaceId, file.id)}
-              aria-label={`Download ${file.name}`}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-snomed-blue hover:bg-snomed-blue-light active:bg-snomed-blue-light transition-colors"
-            >
-              <Download size={18} aria-hidden="true" />
-            </a>
+            <div className="flex flex-col gap-1">
+              <a
+                href={fileForceDownloadUrl(spaceId, file.id)}
+                aria-label={`Download ${file.name}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-snomed-blue hover:bg-snomed-blue-light active:bg-snomed-blue-light transition-colors"
+              >
+                <Download size={18} aria-hidden="true" />
+              </a>
+              {canUpload && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(file);
+                  }}
+                  aria-label={`Delete ${file.name}`}
+                  className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-red-600 hover:bg-red-50 active:bg-red-100 transition-colors"
+                >
+                  <Trash2 size={18} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

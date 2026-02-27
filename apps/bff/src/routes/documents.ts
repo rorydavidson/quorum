@@ -11,7 +11,7 @@ import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog } from "../services/db.js";
-import { listFiles, downloadFile, uploadFile } from "../services/drive.js";
+import { listFiles, downloadFile, uploadFile, deleteFile } from "../services/drive.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -398,6 +398,69 @@ router.post(
       res
         .status(502)
         .json({ error: "Failed to upload file to Drive", code: "DRIVE_ERROR" });
+    }
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /documents/:spaceId/:fileId — delete a file from Drive
+// ---------------------------------------------------------------------------
+
+router.delete(
+  "/:spaceId/:fileId",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const spaceId = String(req.params.spaceId);
+    const fileId = String(req.params.fileId);
+
+    const space = await getSpaceById(spaceId);
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+
+    // Must be able to access the space AND be in an upload group
+    if (
+      !userCanAccessSpace(
+        user.groups,
+        space.keycloakGroup,
+        isAdminUser(user.groups),
+      )
+    ) {
+      res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+      return;
+    }
+
+    if (
+      !userCanUpload(
+        user.groups,
+        space.uploadGroups ?? [],
+        isAdminUser(user.groups),
+      )
+    ) {
+      res.status(403).json({ error: "Delete not permitted", code: "DELETE_FORBIDDEN" });
+      return;
+    }
+
+    try {
+      await deleteFile(fileId);
+
+      res.status(204).end();
+
+      // Audit Logging
+      await createAuditLog({
+        userId: user.sub,
+        userName: user.name,
+        action: "DELETE_DOCUMENT",
+        entityType: "DOCUMENT",
+        entityId: fileId,
+        details: JSON.stringify({
+          spaceId: space.id,
+        }),
+      });
+    } catch (err) {
+      console.error("[documents] Delete error:", err);
+      res.status(502).json({ error: "Failed to delete file from Drive", code: "DRIVE_ERROR" });
     }
   }),
 );

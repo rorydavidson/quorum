@@ -302,6 +302,22 @@ export async function uploadFile(
 }
 
 /**
+ * Move a file to the trash in Drive.
+ * This is safer than permanent deletion and more consistent with user expectations.
+ */
+export async function deleteFile(fileId: string): Promise<void> {
+  if (isMockMode()) return;
+
+  await drive().files.update({
+    fileId,
+    requestBody: {
+      trashed: true,
+    },
+    supportsAllDrives: true,
+  });
+}
+
+/**
  * Check whether the Drive service is reachable (used at startup).
  */
 export async function checkDriveAccess(): Promise<boolean> {

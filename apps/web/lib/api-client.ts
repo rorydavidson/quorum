@@ -263,6 +263,20 @@ export function uploadFileToSpace(
 }
 
 /**
+ * Delete a file from a space.
+ */
+export async function deleteFileFromSpace(spaceId: string, fileId: string): Promise<void> {
+  const res = await fetch(`/api/documents/${spaceId}/${fileId}`, {
+    method: 'DELETE',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Delete failed' }));
+    throw new Error(err.error || 'Delete failed');
+  }
+}
+
+/**
  * Fetch metadata for a specific event (Google Doc URL, agenda items).
  */
 export async function getEventMetadata(
