@@ -7,10 +7,12 @@ import type { SectionWithFiles } from '@/lib/api-client';
 
 interface Props {
   params: Promise<{ spaceId: string; sectionId: string }>;
+  searchParams: Promise<{ folderId?: string }>;
 }
 
-export default async function SectionDocumentsPage({ params }: Props) {
+export default async function SectionDocumentsPage({ params, searchParams }: Props) {
   const { spaceId, sectionId } = await params;
+  const { folderId } = await searchParams;
   const headerStore = await headers();
   const cookie = headerStore.get('cookie') ?? '';
   const user = getUserFromHeaders(headerStore);
@@ -19,7 +21,7 @@ export default async function SectionDocumentsPage({ params }: Props) {
   let error: string | null = null;
 
   try {
-    data = await getSectionFiles(spaceId, sectionId, cookie);
+    data = await getSectionFiles(spaceId, sectionId, cookie, folderId);
   } catch (err) {
     error = (err as Error).message;
   }
@@ -87,7 +89,7 @@ export default async function SectionDocumentsPage({ params }: Props) {
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} />
+          <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} />
         </>
       )}
     </div>

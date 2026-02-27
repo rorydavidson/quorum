@@ -128,7 +128,9 @@ router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const files = await listFiles(space.driveFolderId);
+    const folderId = req.query.folderId as string | undefined;
+    const targetFolderId = folderId || space.driveFolderId;
+    const files = await listFiles(targetFolderId);
     res.json({ space, files });
   } catch (err) {
     console.error("[documents] Drive error:", err);
@@ -177,7 +179,9 @@ router.get(
     }
 
     try {
-      const files = await listFiles(section.driveFolderId);
+      const folderId = req.query.folderId as string | undefined;
+      const targetFolderId = folderId || section.driveFolderId;
+      const files = await listFiles(targetFolderId);
       res.json({ space, section, files });
     } catch (err) {
       console.error("[documents] Drive error:", err);
@@ -342,11 +346,25 @@ router.post(
     }
 
     try {
+      // Priority: 1. folderId (subfolder), 2. sectionId (category folder), 3. space.driveFolderId (root)
+      const folderId = req.query.folderId as string | undefined;
+      const sectionId = req.query.sectionId as string | undefined;
+      let targetFolderId = space.driveFolderId;
+
+      if (folderId) {
+        targetFolderId = folderId;
+      } else if (sectionId) {
+        const section = await getSectionById(space.id, sectionId);
+        if (section) {
+          targetFolderId = section.driveFolderId;
+        }
+      }
+
       // Create a read stream from the temp file on disk
       const stream = fs.createReadStream(file.path);
 
       const driveFile = await uploadFile(
-        space.driveFolderId,
+        targetFolderId,
         file.originalname,
         file.mimetype,
         stream,

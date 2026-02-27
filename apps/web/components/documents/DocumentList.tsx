@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Download, FileSearch, Star } from 'lucide-react';
+import { Download, FileSearch, Star, ArrowLeft } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
 import { fileDownloadUrl, fileForceDownloadUrl } from '@/lib/api-client';
@@ -14,16 +15,23 @@ const PDFViewer = lazy(() =>
 
 interface Props {
   spaceId: string;
+  sectionId?: string;
   files: DriveFile[];
   /** Show the upload button — only true when the session user is in uploadGroups */
   canUpload?: boolean;
 }
 
-function isPdf(file: DriveFile): boolean {
+function isViewable(file: DriveFile): boolean {
   return (
     file.mimeType === 'application/pdf' ||
-    file.mimeType.startsWith('application/vnd.google-apps.')
+    file.mimeType.startsWith('application/vnd.google-apps.document') ||
+    file.mimeType.startsWith('application/vnd.google-apps.spreadsheet') ||
+    file.mimeType.startsWith('application/vnd.google-apps.presentation')
   );
+}
+
+function isFolder(file: DriveFile): boolean {
+  return file.mimeType === 'application/vnd.google-apps.folder';
 }
 
 function formatDate(iso: string): string {
@@ -40,16 +48,40 @@ function formatSize(mb?: number): string {
   return `${mb.toFixed(1)} MB`;
 }
 
-export function DocumentList({ spaceId, files, canUpload = false }: Props) {
-  const [viewingFile, setViewingFile] = useState<DriveFile | null>(null);
+export function DocumentList({ spaceId, sectionId, files, canUpload = false }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const folderId = searchParams.get('folderId');
+  const viewFileId = searchParams.get('view');
+
+  // Find the file to view from the current list if a 'view' param is present
+  const viewingFile = viewFileId ? files.find((f) => f.id === viewFileId) : null;
 
   const openViewer = useCallback((file: DriveFile) => {
-    setViewingFile(file);
-  }, []);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('view', file.id);
+    router.push(`?${params.toString()}`);
+  }, [router, searchParams]);
 
   const closeViewer = useCallback(() => {
-    setViewingFile(null);
-  }, []);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('view');
+    router.push(`?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const handleRowClick = useCallback((file: DriveFile) => {
+    if (isFolder(file)) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('folderId', file.id);
+      params.delete('view'); // clear view when navigating
+      router.push(`?${params.toString()}`);
+    } else if (isViewable(file)) {
+      openViewer(file);
+    } else {
+      // For non-viewable files (Word, Excel, etc.), trigger a direct download
+      window.location.href = fileForceDownloadUrl(spaceId, file.id);
+    }
+  }, [router, searchParams, openViewer, spaceId]);
 
   if (files.length === 0) {
     return (
@@ -65,12 +97,24 @@ export function DocumentList({ spaceId, files, canUpload = false }: Props) {
 
   return (
     <>
-      {/* Upload button — shown only when the user has upload permission */}
-      {canUpload && (
-        <div className="mb-4 flex justify-end">
-          <UploadButton spaceId={spaceId} />
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          {folderId && (
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 text-sm font-medium text-snomed-blue hover:text-snomed-dark-blue transition-colors"
+            >
+              <ArrowLeft size={16} />
+              Back to parent
+            </button>
+          )}
         </div>
-      )}
+
+        {/* Upload button — shown only when the user has upload permission */}
+        {canUpload && (
+          <UploadButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+        )}
+      </div>
 
       {/* Desktop: table */}
       <div className="hidden sm:block overflow-x-auto rounded-lg border border-snomed-border bg-white shadow-sm">
@@ -97,7 +141,7 @@ export function DocumentList({ spaceId, files, canUpload = false }: Props) {
               <tr
                 key={file.id}
                 className="hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
-                onClick={() => isPdf(file) && openViewer(file)}
+                onClick={() => handleRowClick(file)}
               >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
@@ -145,13 +189,12 @@ export function DocumentList({ spaceId, files, canUpload = false }: Props) {
         </table>
       </div>
 
-      {/* Mobile: card list */}
       <div className="sm:hidden space-y-2">
         {files.map((file) => (
           <div
             key={file.id}
             className="flex items-start gap-3 rounded-lg border border-snomed-border bg-white p-4 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
-            onClick={() => isPdf(file) && openViewer(file)}
+            onClick={() => handleRowClick(file)}
           >
             <DocumentTypeIcon
               mimeType={file.mimeType}
@@ -183,16 +226,18 @@ export function DocumentList({ spaceId, files, canUpload = false }: Props) {
       </div>
 
       {/* PDF Viewer overlay */}
-      {viewingFile && (
-        <Suspense fallback={null}>
-          <PDFViewer
-            url={fileDownloadUrl(spaceId, viewingFile.id)}
-            downloadUrl={fileForceDownloadUrl(spaceId, viewingFile.id)}
-            filename={viewingFile.name}
-            onClose={closeViewer}
-          />
-        </Suspense>
-      )}
+      {
+        viewingFile && (
+          <Suspense fallback={null}>
+            <PDFViewer
+              url={fileDownloadUrl(spaceId, viewingFile.id)}
+              downloadUrl={fileForceDownloadUrl(spaceId, viewingFile.id)}
+              filename={viewingFile.name}
+              onClose={closeViewer}
+            />
+          </Suspense>
+        )
+      }
     </>
   );
 }

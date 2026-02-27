@@ -60,8 +60,10 @@ export async function getAccessibleSpaces(cookie: string): Promise<SpaceConfig[]
 /**
  * Fetch files for a specific space.
  */
-export async function getSpaceFiles(spaceId: string, cookie: string): Promise<SpaceWithFiles> {
-  return bffFetch<SpaceWithFiles>(`/documents/${spaceId}`, {
+export async function getSpaceFiles(spaceId: string, cookie: string, folderId?: string): Promise<SpaceWithFiles> {
+  let url = `/documents/${spaceId}`;
+  if (folderId) url += `?folderId=${encodeURIComponent(folderId)}`;
+  return bffFetch<SpaceWithFiles>(url, {
     cookie,
     cache: 'no-store', // always fresh — sections change via admin
   });
@@ -73,11 +75,14 @@ export async function getSpaceFiles(spaceId: string, cookie: string): Promise<Sp
 export async function getSectionFiles(
   spaceId: string,
   sectionId: string,
-  cookie: string
+  cookie: string,
+  folderId?: string
 ): Promise<SectionWithFiles> {
-  return bffFetch<SectionWithFiles>(`/documents/${spaceId}/sections/${sectionId}`, {
+  let url = `/documents/${spaceId}/sections/${sectionId}`;
+  if (folderId) url += `?folderId=${encodeURIComponent(folderId)}`;
+  return bffFetch<SectionWithFiles>(url, {
     cookie,
-    next: { revalidate: 60 },
+    cache: 'no-store',
   });
 }
 
@@ -172,7 +177,9 @@ export function getUserFromHeaders(
   const raw = headerStore.get('x-quorum-user');
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as SessionUser;
+    // Middleware encodes the user JSON as Base64 to safely handle Unicode
+    const decoded = Buffer.from(raw, 'base64').toString('utf-8');
+    return JSON.parse(decoded) as SessionUser;
   } catch {
     return null;
   }
@@ -194,6 +201,8 @@ export interface UploadProgress {
 export function uploadFileToSpace(
   spaceId: string,
   file: File,
+  sectionId?: string,
+  folderId?: string,
   onProgress?: (p: UploadProgress) => void
 ): Promise<DriveFile> {
   return new Promise((resolve, reject) => {
@@ -201,7 +210,11 @@ export function uploadFileToSpace(
     form.append('file', file);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/documents/${spaceId}/upload`);
+    const url = new URL(`/api/documents/${spaceId}/upload`, window.location.origin);
+    if (folderId) url.searchParams.set('folderId', folderId);
+    else if (sectionId) url.searchParams.set('sectionId', sectionId);
+
+    xhr.open('POST', url.toString());
 
     if (onProgress) {
       xhr.upload.addEventListener('progress', (e) => {

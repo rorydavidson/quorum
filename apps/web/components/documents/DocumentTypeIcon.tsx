@@ -5,6 +5,7 @@ import {
   File,
   Image,
   Archive,
+  Folder,
 } from 'lucide-react';
 
 interface Props {
@@ -14,6 +15,10 @@ interface Props {
 }
 
 export function DocumentTypeIcon({ mimeType, size = 18, className }: Props) {
+  if (mimeType === 'application/vnd.google-apps.folder') {
+    return <Folder size={size} className={className} />;
+  }
+
   if (
     mimeType === 'application/pdf' ||
     mimeType === 'application/vnd.google-apps.document' ||
@@ -51,6 +56,7 @@ export function DocumentTypeIcon({ mimeType, size = 18, className }: Props) {
 }
 
 export function mimeTypeLabel(mimeType: string): string {
+  if (mimeType === 'application/vnd.google-apps.folder') return 'Folder';
   if (mimeType === 'application/pdf') return 'PDF';
   if (mimeType === 'application/vnd.google-apps.document') return 'Google Doc';
   if (mimeType === 'application/vnd.google-apps.spreadsheet') return 'Google Sheet';

@@ -7,10 +7,12 @@ import type { SpaceWithFiles } from '@/lib/api-client';
 
 interface Props {
   params: Promise<{ spaceId: string }>;
+  searchParams: Promise<{ folderId?: string }>;
 }
 
-export default async function SpaceDocumentsPage({ params }: Props) {
+export default async function SpaceDocumentsPage({ params, searchParams }: Props) {
   const { spaceId } = await params;
+  const { folderId } = await searchParams;
   const headerStore = await headers();
   const cookie = headerStore.get('cookie') ?? '';
   const user = getUserFromHeaders(headerStore);
@@ -19,7 +21,7 @@ export default async function SpaceDocumentsPage({ params }: Props) {
   let error: string | null = null;
 
   try {
-    data = await getSpaceFiles(spaceId, cookie);
+    data = await getSpaceFiles(spaceId, cookie, folderId);
   } catch (err) {
     error = (err as Error).message;
   }

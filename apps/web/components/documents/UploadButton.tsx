@@ -7,6 +7,8 @@ import { uploadFileToSpace } from '@/lib/api-client';
 
 interface Props {
   spaceId: string;
+  sectionId?: string;
+  folderId?: string | null;
 }
 
 type UploadState =
@@ -15,7 +17,7 @@ type UploadState =
   | { status: 'success'; filename: string }
   | { status: 'error'; message: string };
 
-export function UploadButton({ spaceId }: Props) {
+export function UploadButton({ spaceId, sectionId, folderId }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const [state, setState] = useState<UploadState>({ status: 'idle' });
@@ -36,7 +38,7 @@ export function UploadButton({ spaceId }: Props) {
       setState({ status: 'uploading', filename: file.name, percent: 0 });
 
       try {
-        await uploadFileToSpace(spaceId, file, ({ percent }) => {
+        await uploadFileToSpace(spaceId, file, sectionId, folderId ?? undefined, ({ percent }) => {
           setState({ status: 'uploading', filename: file.name, percent });
         });
         setState({ status: 'success', filename: file.name });
