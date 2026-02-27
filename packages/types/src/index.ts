@@ -81,3 +81,17 @@ export interface UpsertSpacePayload {
   uploadGroups: string[];
   sortOrder: number;
 }
+
+export interface AgendaItem {
+  id: string;
+  text: string;
+  responsible?: string;
+  completed: boolean;
+}
+
+export interface EventMetadata {
+  id: string;
+  spaceId: string;
+  googleDocUrl?: string;
+  agendaItems: AgendaItem[];
+}

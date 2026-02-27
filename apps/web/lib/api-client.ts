@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -140,6 +140,20 @@ export async function getSpaceEvents(
   );
 }
 
+/**
+ * Fetch a single event with its database metadata.
+ */
+export async function getEventDetails(
+  spaceId: string,
+  eventId: string,
+  cookie: string
+): Promise<{ event: CalendarEvent; metadata: EventMetadata }> {
+  return bffFetch<{ event: CalendarEvent; metadata: EventMetadata }>(
+    `/calendar/${spaceId}/${eventId}`,
+    { cookie, cache: 'no-store' }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
@@ -246,4 +260,40 @@ export function uploadFileToSpace(
 
     xhr.send(form);
   });
+}
+
+/**
+ * Fetch metadata for a specific event (Google Doc URL, agenda items).
+ */
+export async function getEventMetadata(
+  spaceId: string,
+  eventId: string,
+  cookie: string
+): Promise<EventMetadata> {
+  return bffFetch<EventMetadata>(`/events/${spaceId}/${eventId}`, {
+    cookie,
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Update metadata for an event.
+ */
+export async function updateEventMetadata(
+  spaceId: string,
+  eventId: string,
+  payload: Partial<Omit<EventMetadata, 'id' | 'spaceId'>>
+): Promise<EventMetadata> {
+  const res = await fetch(`/api/events/${spaceId}/${eventId}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to update event metadata');
+  }
+
+  return res.json();
 }

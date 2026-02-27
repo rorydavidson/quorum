@@ -83,19 +83,24 @@ function SectionCard({ spaceId, section }: { spaceId: string; section: SpaceSect
   );
 }
 
-function EventRow({ event }: { event: CalendarEvent }) {
+function EventRow({ spaceId, event }: { spaceId: string; event: CalendarEvent }) {
   const { day, month, time } = formatEventDate(event.start);
   const isVirtual = isVirtualLocation(event.location);
   const physicalLocation = event.location && !isVirtual ? event.location : undefined;
 
   return (
-    <div className="flex items-start gap-4 px-5 py-4">
+    <Link
+      href={`/spaces/${spaceId}/events/${event.id}`}
+      className="flex items-start gap-4 px-5 py-4 hover:bg-snomed-blue-light/20 transition-colors group"
+    >
       <div className="flex-shrink-0 w-11 text-center">
         <p className="text-lg font-bold leading-none text-snomed-blue">{day}</p>
         <p className="text-xs font-medium uppercase tracking-wide text-snomed-grey/50 mt-0.5">{month}</p>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-snomed-grey">{event.summary}</p>
+        <p className="text-sm font-medium text-snomed-grey group-hover:text-snomed-blue transition-colors">
+          {event.summary}
+        </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-snomed-grey/60">
           <span className="flex items-center gap-1">
             <Clock size={11} aria-hidden="true" />
@@ -115,7 +120,11 @@ function EventRow({ event }: { event: CalendarEvent }) {
           )}
         </div>
       </div>
-    </div>
+      <ChevronRight
+        size={16}
+        className="flex-shrink-0 mt-1 text-snomed-grey/25 group-hover:text-snomed-blue transition-colors"
+      />
+    </Link>
   );
 }
 
@@ -275,7 +284,7 @@ export default async function SpaceLandingPage({ params }: Props) {
                 )}
               </div>
             ) : (
-              upcomingEvents.map((evt) => <EventRow key={evt.id} event={evt} />)
+              upcomingEvents.map((evt) => <EventRow key={evt.id} spaceId={spaceId} event={evt} />)
             )}
           </div>
         </section>

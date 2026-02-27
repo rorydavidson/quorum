@@ -13,6 +13,7 @@ import documentsRouter from "./routes/documents.js";
 import adminRouter from "./routes/admin.js";
 import calendarRouter from "./routes/calendar.js";
 import searchRouter from "./routes/search.js";
+import eventsRouter from "./routes/events.js";
 
 // ---------------------------------------------------------------------------
 // Environment validation — fail fast before binding any port
@@ -85,6 +86,7 @@ app.use("/documents", documentsRouter);
 app.use("/admin", adminRouter);
 app.use("/calendar", calendarRouter);
 app.use("/search", searchRouter);
+app.use("/events", eventsRouter);
 
 // ---------------------------------------------------------------------------
 // Global Error Handler

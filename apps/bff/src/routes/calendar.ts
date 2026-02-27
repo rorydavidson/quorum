@@ -1,8 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { getSpaces } from '../services/db.js';
-import { getUpcomingEvents } from '../services/calendar.js';
+import { getSpaces, getSpaceById, getEventMetadata } from '../services/db.js';
+import { getUpcomingEvents, getEventByID } from '../services/calendar.js';
 
 const router: IRouter = Router();
 
@@ -58,6 +58,46 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
 
   const events = await getUpcomingEvents(calendarEntries, limit, days);
   res.json(events);
+}));
+
+/**
+ * GET /calendar/:spaceId/:eventId — fetch a single event with its metadata (Doc URL, agenda)
+ */
+router.get('/:spaceId/:eventId', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  const spaceId = req.params.spaceId as string;
+  const eventId = req.params.eventId as string;
+  const user = req.session.user!;
+  const admin = isAdminUser(user.groups);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) {
+    res.status(404).json({ error: 'Space not found', code: 'SPACE_NOT_FOUND' });
+    return;
+  }
+
+  // Auth check
+  if (!admin && !userCanAccessSpace(user.groups, space.keycloakGroup)) {
+    res.status(403).json({ error: 'Access denied', code: 'FORBIDDEN' });
+    return;
+  }
+
+  const rawEvent = await getEventByID(space.calendarId ?? '', space.icalUrl, eventId);
+  if (!rawEvent) {
+    res.status(404).json({ error: 'Event not found', code: 'EVENT_NOT_FOUND' });
+    return;
+  }
+
+  // Fetch metadata stored in our DB
+  const metadata = await getEventMetadata(eventId);
+
+  res.json({
+    event: {
+      ...rawEvent,
+      spaceId: space.id,
+      spaceName: space.name,
+    },
+    metadata: metadata ?? { id: eventId, spaceId, googleDocUrl: undefined, agendaItems: [] },
+  });
 }));
 
 export default router;

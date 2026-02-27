@@ -68,7 +68,7 @@ router.use(requireAuth);
 // Helper: check whether the session user belongs to a space's keycloak group
 // ---------------------------------------------------------------------------
 
-function userCanAccessSpace(
+export function userCanAccessSpace(
   userGroups: string[],
   spaceGroup: string,
   isAdmin: boolean,
@@ -83,7 +83,7 @@ function userCanAccessSpace(
   );
 }
 
-function isAdminUser(groups: string[]): boolean {
+export function isAdminUser(groups: string[]): boolean {
   return groups.some((g) => g === "portal_admin" || g === "/portal_admin");
 }
 
@@ -287,7 +287,7 @@ function uploadSingle(req: Request, res: Response, next: NextFunction): void {
   });
 }
 
-function userCanUpload(
+export function userCanUpload(
   userGroups: string[],
   uploadGroups: string[],
   isAdmin: boolean,

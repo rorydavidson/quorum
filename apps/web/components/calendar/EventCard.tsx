@@ -66,7 +66,7 @@ export function EventCard({ event }: EventCardProps) {
 
   return (
     <Link
-      href={`/spaces/${event.spaceId}`}
+      href={`/spaces/${event.spaceId}/events/${event.id}`}
       className="group flex items-start gap-4 rounded-lg border border-snomed-border bg-white p-4 shadow-sm hover:shadow-md active:shadow-sm transition-shadow min-h-[44px]"
     >
       {/* Date block */}

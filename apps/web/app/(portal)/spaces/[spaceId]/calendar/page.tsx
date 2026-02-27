@@ -129,9 +129,10 @@ export default async function SpaceCalendarPage({ params }: Props) {
                   const physicalLocation = evt.location && !isVirtual ? evt.location : undefined;
 
                   return (
-                    <div
+                    <Link
+                      href={`/spaces/${spaceId}/events/${evt.id}`}
                       key={evt.id}
-                      className="flex items-start gap-4 rounded-lg border border-snomed-border bg-white p-5 shadow-sm"
+                      className="group flex items-start gap-4 rounded-lg border border-snomed-border bg-white p-5 shadow-sm hover:border-snomed-blue/30 hover:shadow-md transition-all active:scale-[0.99]"
                     >
                       {/* Date block */}
                       <div className="flex-shrink-0 w-14 rounded-lg bg-snomed-blue text-white flex flex-col items-center justify-center py-2">
@@ -145,7 +146,9 @@ export default async function SpaceCalendarPage({ params }: Props) {
 
                       {/* Details */}
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-snomed-grey">{evt.summary}</p>
+                        <p className="font-semibold text-snomed-grey group-hover:text-snomed-blue transition-colors">
+                          {evt.summary}
+                        </p>
                         {evt.description && (
                           <p className="mt-1 text-sm text-snomed-grey/60 line-clamp-2">
                             {evt.description}
@@ -170,7 +173,11 @@ export default async function SpaceCalendarPage({ params }: Props) {
                           )}
                         </div>
                       </div>
-                    </div>
+
+                      <div className="flex-shrink-0 self-center opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0">
+                        <ChevronRight size={20} className="text-snomed-blue" />
+                      </div>
+                    </Link>
                   );
                 })}
               </div>

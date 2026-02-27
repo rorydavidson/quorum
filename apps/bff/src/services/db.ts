@@ -1,5 +1,5 @@
 import Knex from 'knex';
-import type { SpaceConfig, SpaceSection } from '@snomed/types';
+import { SpaceConfig, SpaceSection, EventMetadata } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Knex instance
@@ -56,6 +56,17 @@ export async function runMigrations(): Promise<void> {
       t.primary(['id', 'space_id']);
     });
     console.log('[db] Created space_sections table');
+  }
+
+  const hasEventMetadata = await db.schema.hasTable('event_metadata');
+  if (!hasEventMetadata) {
+    await db.schema.createTable('event_metadata', (t) => {
+      t.string('id').primary(); // event_id
+      t.string('space_id').notNullable().references('id').inTable('spaces').onDelete('CASCADE');
+      t.string('google_doc_url').nullable();
+      t.text('agenda_items').notNullable().defaultTo('[]'); // JSON
+    });
+    console.log('[db] Created event_metadata table');
   }
 }
 
@@ -226,6 +237,62 @@ export async function getSectionById(
     .where({ id: sectionId, space_id: spaceId })
     .first();
   return row ? rowToSection(row) : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// CRUD — Event Metadata
+// ---------------------------------------------------------------------------
+
+interface EventMetadataRow {
+  id: string;
+  space_id: string;
+  google_doc_url: string | null;
+  agenda_items: string; // JSON
+}
+
+function rowToEventMetadata(row: EventMetadataRow): EventMetadata {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    googleDocUrl: row.google_doc_url ?? undefined,
+    agendaItems: JSON.parse(row.agenda_items),
+  };
+}
+
+export async function getEventMetadata(id: string): Promise<EventMetadata | undefined> {
+  const row = await db<EventMetadataRow>('event_metadata').where({ id }).first();
+  return row ? rowToEventMetadata(row) : undefined;
+}
+
+export async function upsertEventMetadata(
+  id: string,
+  spaceId: string,
+  payload: Partial<Omit<EventMetadata, 'id' | 'spaceId'>>
+): Promise<EventMetadata> {
+  const existing = await db<EventMetadataRow>('event_metadata').where({ id }).first();
+
+  const rowToInsert: Partial<EventMetadataRow> = {
+    id,
+    space_id: spaceId,
+  };
+
+  if (payload.googleDocUrl !== undefined) {
+    rowToInsert.google_doc_url = payload.googleDocUrl ?? null;
+  }
+  if (payload.agendaItems !== undefined) {
+    rowToInsert.agenda_items = JSON.stringify(payload.agendaItems);
+  }
+
+  if (existing) {
+    await db<EventMetadataRow>('event_metadata').where({ id }).update(rowToInsert);
+  } else {
+    // If inserting new, ensuring defaults
+    if (rowToInsert.agenda_items === undefined) rowToInsert.agenda_items = '[]';
+    await db<EventMetadataRow>('event_metadata').insert(rowToInsert as EventMetadataRow);
+  }
+
+  const updated = await getEventMetadata(id);
+  return updated!;
 }
 
 // ---------------------------------------------------------------------------

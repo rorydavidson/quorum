@@ -462,3 +462,47 @@ export async function getUpcomingEvents(
     spaceName: calendars[i % calendars.length].spaceName,
   }));
 }
+
+/**
+ * Fetch a single event by its ID from a specific calendar.
+ * Supports both Google Calendar API and iCal feeds.
+ */
+export async function getEventByID(
+  calendarId: string,
+  icalUrl: string | undefined,
+  eventId: string
+): Promise<RawEvent | null> {
+  // If we have SA credentials and a calendarId, try Google API first
+  if (isServiceAccountMode() && calendarId) {
+    try {
+      const res = await calendarClient().events.get({
+        calendarId,
+        eventId,
+      });
+      return mapGoogleEvent(res.data);
+    } catch (err) {
+      console.warn(`[calendar] SA: failed to get event ${eventId} from ${calendarId}:`, (err as Error).message);
+      // fallback to iCal if available
+    }
+  }
+
+  // Fallback to iCal if we have a URL
+  const url = icalUrl ?? (calendarId ? googleCalendarICalUrl(calendarId) : undefined);
+  if (url) {
+    try {
+      const data = await nodeIcal.async.fromURL(url);
+      const component = Object.values(data).find(
+        (c) => c && c.type === 'VEVENT' && (c as VEvent).uid === eventId
+      );
+      if (component) {
+        return mapICalEvent(component as VEvent);
+      }
+    } catch (err) {
+      console.warn(`[calendar] iCal: failed to get event ${eventId} from ${url}:`, (err as Error).message);
+    }
+  }
+
+  // Finally, check mock data
+  const mock = MOCK_RAW_EVENTS.find((e) => e.id === eventId);
+  return mock ?? null;
+}
