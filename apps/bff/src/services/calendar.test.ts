@@ -5,7 +5,7 @@
  * "Tier 2 / iCal-only" mode. node-ical is mocked to avoid real HTTP calls.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock node-ical — must be hoisted before the service is imported

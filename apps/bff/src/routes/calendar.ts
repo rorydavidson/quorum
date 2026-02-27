@@ -56,7 +56,14 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
       spaceName: s.name,
     }));
 
-  const events = await getUpcomingEvents(calendarEntries, limit, days);
+  let events: Awaited<ReturnType<typeof getUpcomingEvents>>;
+  try {
+    events = await getUpcomingEvents(calendarEntries, limit, days);
+  } catch (err) {
+    console.error('[calendar] getUpcomingEvents failed:', err);
+    res.status(502).json({ error: 'Failed to fetch calendar events', code: 'CALENDAR_ERROR' });
+    return;
+  }
   res.json(events);
 }));
 

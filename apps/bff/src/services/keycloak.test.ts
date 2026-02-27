@@ -22,7 +22,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // ---------------------------------------------------------------------------
 
 const {
-  MOCK_AUTH_URL,
   MOCK_END_SESSION,
   mockClientInstance,
   MockClientConstructor,

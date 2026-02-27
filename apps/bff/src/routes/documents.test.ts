@@ -12,6 +12,7 @@ vi.mock('../services/db.js', () => ({
   getSpaces: vi.fn(),
   getSpaceById: vi.fn(),
   getSectionById: vi.fn(),
+  createAuditLog: vi.fn().mockResolvedValue(undefined),
   default: {},
 }));
 

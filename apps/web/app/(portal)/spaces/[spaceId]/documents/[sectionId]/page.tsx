@@ -89,7 +89,7 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} />
+          <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} />
         </>
       )}
     </div>

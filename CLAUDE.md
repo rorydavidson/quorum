@@ -375,7 +375,8 @@ See `plan.md` for detailed tasks per phase. Summary:
 | 7 | Admin dashboard | `[x] DONE` |
 | 8 | Official Records / Snapshots | `[ ] TODO` |
 | 9 | Upload functionality | `[x] DONE` |
-| 10 | AWS deployment | `[ ] TODO` |
+| 10 | Integration of Discourse forums per space | `[ ] TODO` |
+| 11 | AWS deployment | `[ ] TODO` |
 
 **Update this table as phases complete.**
 

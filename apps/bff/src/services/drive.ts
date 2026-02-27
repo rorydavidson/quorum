@@ -302,6 +302,68 @@ export async function uploadFile(
 }
 
 /**
+ * Copy a file within Drive, giving the copy a new name and placing it in the
+ * specified parent folder. Used to create Official Record snapshots.
+ *
+ * Dev note: if the service account only has read access (e.g. during local
+ * development), the Drive API will throw a permission error. In that case we
+ * log a warning and return a synthetic copy so the UI can still be tested
+ * without full Drive write permissions. In production the error is always
+ * propagated so the BFF route can return a proper 502.
+ */
+export async function copyFileInDrive(
+  fileId: string,
+  newName: string,
+  parentFolderId: string,
+): Promise<DriveFile> {
+  if (isMockMode()) {
+    return {
+      id: `mock-copy-${Date.now()}`,
+      name: newName,
+      mimeType: "application/pdf",
+      size: 0.5,
+      createdTime: new Date().toISOString(),
+      modifiedTime: new Date().toISOString(),
+      webViewLink: undefined,
+      isOfficialRecord: newName.includes(OFFICIAL_RECORD_MARKER),
+    };
+  }
+
+  try {
+    const res = await drive().files.copy({
+      fileId,
+      supportsAllDrives: true,
+      requestBody: {
+        name: newName,
+        parents: [parentFolderId],
+      },
+      fields: "id, name, mimeType, size, createdTime, modifiedTime, webViewLink",
+    });
+    return mapFile(res.data);
+  } catch (err) {
+    // Fail open in dev — service account may only have read access locally.
+    // Fail closed in production — propagate so the 502 is returned to the client.
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[drive] copyFileInDrive: Drive API error in dev — returning synthetic copy.",
+        err,
+      );
+      return {
+        id: `dev-copy-${Date.now()}`,
+        name: newName,
+        mimeType: "application/pdf",
+        size: 0.5,
+        createdTime: new Date().toISOString(),
+        modifiedTime: new Date().toISOString(),
+        webViewLink: undefined,
+        isOfficialRecord: newName.includes(OFFICIAL_RECORD_MARKER),
+      };
+    }
+    throw err;
+  }
+}
+
+/**
  * Move a file to the trash in Drive.
  * This is safer than permanent deletion and more consistent with user expectations.
  */

@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Download, FileSearch, Star, ArrowLeft, Trash2 } from 'lucide-react';
+import { Download, FileSearch, Star, ArrowLeft, Trash2, Archive, BookMarked } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
-import { fileDownloadUrl, fileForceDownloadUrl, deleteFileFromSpace } from '@/lib/api-client';
+import { fileDownloadUrl, fileForceDownloadUrl, deleteFileFromSpace, createOfficialRecord } from '@/lib/api-client';
 import { UploadButton } from './UploadButton';
 
 // Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
@@ -19,6 +19,8 @@ interface Props {
   files: DriveFile[];
   /** Show the upload button — only true when the session user is in uploadGroups */
   canUpload?: boolean;
+  /** Show per-document "Make Official Record" button — only true for portal_admin */
+  canCreateOfficialRecord?: boolean;
 }
 
 function isViewable(file: DriveFile): boolean {
@@ -48,11 +50,17 @@ function formatSize(mb?: number): string {
   return `${mb.toFixed(1)} MB`;
 }
 
-export function DocumentList({ spaceId, sectionId, files, canUpload = false }: Props) {
+export function DocumentList({ spaceId, sectionId, files, canUpload = false, canCreateOfficialRecord = false }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const folderId = searchParams.get('folderId');
   const viewFileId = searchParams.get('view');
+
+  const [officialOnly, setOfficialOnly] = useState(false);
+  const [creatingRecordId, setCreatingRecordId] = useState<string | null>(null);
+
+  const hasOfficialRecords = files.some((f) => f.isOfficialRecord);
+  const visibleFiles = officialOnly ? files.filter((f) => f.isOfficialRecord) : files;
 
   // Find the file to view from the current list if a 'view' param is present
   const viewingFile = viewFileId ? files.find((f) => f.id === viewFileId) : null;
@@ -97,6 +105,24 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
     }
   }, [spaceId, router]);
 
+  const handleCreateOfficialRecord = useCallback(async (file: DriveFile) => {
+    if (!window.confirm(
+      `Create an Official Record of "${file.name}"?\n\n` +
+      `A date-stamped copy will be saved as an immutable Official Record. ` +
+      `The original document is not modified.`
+    )) return;
+
+    setCreatingRecordId(file.id);
+    try {
+      await createOfficialRecord(spaceId, file.id, file.name);
+      router.refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create Official Record');
+    } finally {
+      setCreatingRecordId(null);
+    }
+  }, [spaceId, router]);
+
   if (files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -109,10 +135,29 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
     );
   }
 
+  if (officialOnly && visibleFiles.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Archive size={48} className="mb-4 text-amber-300" />
+        <p className="text-base font-medium text-snomed-grey">No Official Records yet</p>
+        <p className="mt-1 text-sm text-snomed-grey/60">
+          Official Records are created per-document by admins using the{' '}
+          <BookMarked size={12} className="inline" aria-hidden="true" /> button.
+        </p>
+        <button
+          onClick={() => setOfficialOnly(false)}
+          className="mt-4 text-sm text-snomed-blue hover:underline"
+        >
+          Show all documents
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
           {folderId && (
             <button
               onClick={() => router.back()}
@@ -120,6 +165,21 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
             >
               <ArrowLeft size={16} />
               Back to parent
+            </button>
+          )}
+
+          {/* Official Records filter — only shown when there are some */}
+          {hasOfficialRecords && (
+            <button
+              onClick={() => setOfficialOnly((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors min-h-[32px] ${
+                officialOnly
+                  ? 'border-amber-300 bg-amber-50 text-amber-700'
+                  : 'border-snomed-border bg-white text-snomed-grey/60 hover:text-snomed-grey'
+              }`}
+            >
+              <Star size={11} />
+              Official Records only
             </button>
           )}
         </div>
@@ -149,10 +209,11 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
               </th>
               <th className="px-4 py-3 w-16" />
               {canUpload && <th className="px-4 py-3 w-16" />}
+              {canCreateOfficialRecord && <th className="px-4 py-3 w-16" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-snomed-border">
-            {files.map((file) => (
+            {visibleFiles.map((file) => (
               <tr
                 key={file.id}
                 className="hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer"
@@ -209,6 +270,22 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
                     </button>
                   </td>
                 )}
+                {canCreateOfficialRecord && !file.isOfficialRecord && !isFolder(file) && (
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => handleCreateOfficialRecord(file)}
+                      disabled={creatingRecordId === file.id}
+                      aria-label={`Create Official Record of ${file.name}`}
+                      title="Create Official Record"
+                      className="flex items-center justify-center w-9 h-9 rounded-lg text-snomed-grey/50 hover:text-amber-600 hover:bg-amber-50 active:bg-amber-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <BookMarked size={16} aria-hidden="true" />
+                    </button>
+                  </td>
+                )}
+                {canCreateOfficialRecord && (file.isOfficialRecord || isFolder(file)) && (
+                  <td className="px-4 py-3" />
+                )}
               </tr>
             ))}
           </tbody>
@@ -216,7 +293,7 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
       </div>
 
       <div className="sm:hidden space-y-2">
-        {files.map((file) => (
+        {visibleFiles.map((file) => (
           <div
             key={file.id}
             className="flex items-start gap-3 rounded-lg border border-snomed-border bg-white p-4 shadow-sm active:bg-gray-50 transition-colors cursor-pointer"
@@ -258,6 +335,20 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false }: P
                   className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-red-600 hover:bg-red-50 active:bg-red-100 transition-colors"
                 >
                   <Trash2 size={18} aria-hidden="true" />
+                </button>
+              )}
+              {canCreateOfficialRecord && !file.isOfficialRecord && !isFolder(file) && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreateOfficialRecord(file);
+                  }}
+                  disabled={creatingRecordId === file.id}
+                  aria-label={`Create Official Record of ${file.name}`}
+                  title="Create Official Record"
+                  className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-snomed-grey/50 hover:text-amber-600 hover:bg-amber-50 active:bg-amber-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <BookMarked size={18} aria-hidden="true" />
                 </button>
               )}
             </div>

@@ -263,6 +263,33 @@ export function uploadFileToSpace(
 }
 
 /**
+ * Create an Official Record copy of a single document.
+ * Returns the newly created DriveFile (with isOfficialRecord: true).
+ * Called from the DocumentList when the user clicks "Make Official Record".
+ */
+export async function createOfficialRecord(
+  spaceId: string,
+  fileId: string,
+  fileName: string,
+): Promise<DriveFile> {
+  const res = await fetch(
+    `/api/admin/spaces/${spaceId}/files/${fileId}/snapshot`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileName }),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create Official Record' })) as { error?: string };
+    throw new Error(err.error ?? 'Failed to create Official Record');
+  }
+
+  return res.json() as Promise<DriveFile>;
+}
+
+/**
  * Delete a file from a space.
  */
 export async function deleteFileFromSpace(spaceId: string, fileId: string): Promise<void> {

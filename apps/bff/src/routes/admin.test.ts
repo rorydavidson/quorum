@@ -16,6 +16,10 @@ vi.mock('../services/db.js', () => ({
   upsertSection: vi.fn(),
   deleteSection: vi.fn(),
   getSectionById: vi.fn(),
+  getBackup: vi.fn(),
+  restoreBackup: vi.fn(),
+  createAuditLog: vi.fn().mockResolvedValue(undefined),
+  getAuditLogs: vi.fn().mockResolvedValue([]),
   default: {},
 }));
 

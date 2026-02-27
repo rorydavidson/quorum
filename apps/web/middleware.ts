@@ -43,7 +43,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     process.env.DEV_AUTH_BYPASS === "true"
   ) {
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-quorum-user", DEV_USER);
+    // Must Base64-encode to match the encoding getUserFromHeaders() expects
+    const encodedUser = Buffer.from(DEV_USER).toString("base64");
+    requestHeaders.set("x-quorum-user", encodedUser);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

@@ -15,6 +15,7 @@ import {
   createAuditLog,
   getAuditLogs,
 } from "../services/db.js";
+import { copyFileInDrive } from "../services/drive.js";
 
 const router: IRouter = Router();
 
@@ -328,6 +329,73 @@ router.delete(
     });
 
     res.status(204).end();
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Official Records — per-document
+// ---------------------------------------------------------------------------
+
+const SnapshotBodySchema = z.object({
+  fileName: z.string().min(1).max(500),
+});
+
+/**
+ * POST /admin/spaces/:spaceId/files/:fileId/snapshot
+ *
+ * Creates an Official Record of a single document by copying it in the
+ * space's Drive folder with a `_OFFICIAL_RECORD_YYYY-MM-DD_` prefix.
+ *
+ * Body: { fileName: string }
+ * Returns: DriveFile (the newly created copy)
+ */
+router.post(
+  "/spaces/:spaceId/files/:fileId/snapshot",
+  async (req: Request, res: Response): Promise<void> => {
+    const spaceId = String(req.params.spaceId);
+    const fileId = String(req.params.fileId);
+
+    const parsed = SnapshotBodySchema.safeParse(req.body);
+    if (!parsed.success) { zodError(res, parsed.error); return; }
+    const { fileName } = parsed.data;
+
+    // Guard: don't snapshot a file that is already an Official Record
+    if (fileName.startsWith("_OFFICIAL_RECORD_")) {
+      res.status(400).json({
+        error: "This file is already an Official Record.",
+        code: "ALREADY_OFFICIAL_RECORD",
+      });
+      return;
+    }
+
+    const space = await getSpaceById(spaceId);
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+
+    const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const newName = `_OFFICIAL_RECORD_${date}_${fileName}`;
+
+    let copy;
+    try {
+      copy = await copyFileInDrive(fileId, newName, space.driveFolderId);
+    } catch {
+      res.status(502).json({ error: "Failed to copy file in Drive", code: "DRIVE_ERROR" });
+      return;
+    }
+
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "CREATE_OFFICIAL_RECORD",
+      entityType: "FILE",
+      entityId: fileId,
+      details: JSON.stringify({ spaceId, fileName, officialRecordName: newName }),
+    });
+
+    res.status(201).json(copy);
   },
 );
 

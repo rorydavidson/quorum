@@ -3,7 +3,7 @@ import {
   FileSpreadsheet,
   Presentation,
   File,
-  Image,
+  Image as ImageIcon,
   Archive,
   Folder,
 } from 'lucide-react';
@@ -45,7 +45,7 @@ export function DocumentTypeIcon({ mimeType, size = 18, className }: Props) {
   }
 
   if (mimeType.startsWith('image/')) {
-    return <Image size={size} className={className} />;
+    return <ImageIcon size={size} className={className} />;
   }
 
   if (mimeType === 'application/zip' || mimeType === 'application/x-tar') {

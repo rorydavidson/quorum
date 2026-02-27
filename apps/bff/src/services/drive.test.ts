@@ -10,6 +10,7 @@ import { Readable } from "stream";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   checkDriveAccess,
+  copyFileInDrive,
   downloadFile,
   getFileMetadata,
   listFiles,
@@ -190,6 +191,47 @@ describe("uploadFile()", () => {
     // just verify they are defined strings
     expect(typeof a.id).toBe("string");
     expect(typeof b.id).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// copyFileInDrive
+// ---------------------------------------------------------------------------
+
+describe("copyFileInDrive()", () => {
+  it("returns a DriveFile with the given new name", async () => {
+    const result = await copyFileInDrive("mock-file-1", "copy-of-doc.pdf", "folder-123");
+    expect(result.name).toBe("copy-of-doc.pdf");
+  });
+
+  it("id starts with mock-copy- in mock mode", async () => {
+    const result = await copyFileInDrive("mock-file-1", "copy.pdf", "folder-123");
+    expect(result.id).toMatch(/^mock-copy-/);
+  });
+
+  it("marks the copy as an official record when the name contains _OFFICIAL_RECORD_", async () => {
+    const name = "_OFFICIAL_RECORD_2026-02-27_agenda.pdf";
+    const result = await copyFileInDrive("mock-file-1", name, "folder-123");
+    expect(result.isOfficialRecord).toBe(true);
+  });
+
+  it("does NOT mark copy as official record when name lacks the marker", async () => {
+    const result = await copyFileInDrive("mock-file-1", "agenda.pdf", "folder-123");
+    expect(result.isOfficialRecord).toBe(false);
+  });
+
+  it("returns unique IDs for successive copies", async () => {
+    const a = await copyFileInDrive("mock-file-1", "a.pdf", "folder-1");
+    await new Promise((r) => setTimeout(r, 2)); // ensure Date.now() advances
+    const b = await copyFileInDrive("mock-file-1", "b.pdf", "folder-1");
+    expect(typeof a.id).toBe("string");
+    expect(typeof b.id).toBe("string");
+  });
+
+  it("sets createdTime and modifiedTime as valid ISO 8601 strings", async () => {
+    const result = await copyFileInDrive("mock-file-1", "doc.pdf", "folder-123");
+    expect(new Date(result.createdTime).toISOString()).toBe(result.createdTime);
+    expect(new Date(result.modifiedTime).toISOString()).toBe(result.modifiedTime);
   });
 });
 

@@ -16,7 +16,6 @@ import {
   Settings,
   Download,
   Upload,
-  History,
   Info,
 } from 'lucide-react';
 import type { SpaceConfig, SpaceSection, AuditLog } from '@snomed/types';
@@ -775,7 +774,9 @@ export function AdminShell({ initialSpaces }: Props) {
                 {/* Space row */}
                 <div className="flex items-center gap-3 px-5 py-4">
                   <button
-                    onClick={() => setExpandedSpaceId(isExpanded ? null : space.id)}
+                    onClick={() => {
+                      setExpandedSpaceId(isExpanded ? null : space.id);
+                    }}
                     className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-snomed-blue-light transition-colors"
                     aria-label={isExpanded ? 'Collapse' : 'Expand'}
                   >
@@ -877,7 +878,7 @@ export function AdminShell({ initialSpaces }: Props) {
                     )}
 
                     {/* Add section button */}
-                    <div className="pl-14 pr-5 py-3">
+                    <div className="pl-14 pr-5 py-3 border-t border-snomed-border/60">
                       <button
                         onClick={() => openCreateSection(space.id)}
                         className="flex items-center gap-2 text-xs text-snomed-blue hover:text-snomed-dark-blue transition-colors min-h-[36px]"
@@ -886,6 +887,7 @@ export function AdminShell({ initialSpaces }: Props) {
                         Add document section
                       </button>
                     </div>
+
                   </div>
                 )}
               </div>

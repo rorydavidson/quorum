@@ -92,7 +92,13 @@ app.use("/events", eventsRouter);
 // Global Error Handler
 // ---------------------------------------------------------------------------
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+interface AppError extends Error {
+  status?: number;
+  statusCode?: number;
+  code?: string;
+}
+
+app.use((err: AppError, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("[BFF Error]", err);
   const status = err.status || err.statusCode || 500;
   res.status(status).json({

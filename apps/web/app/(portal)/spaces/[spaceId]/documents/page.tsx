@@ -85,7 +85,7 @@ export default async function SpaceDocumentsPage({ params, searchParams }: Props
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} />
+          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} />
         </>
       )}
     </div>

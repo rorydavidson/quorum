@@ -371,6 +371,16 @@ router.post(
         file.size,
       );
 
+      // The upload succeeded: suppress any ENOENT that fires when libuv's async
+      // `open` callback arrives after the temp file has been unlinked. Without
+      // this handler the error would become an uncaught exception.
+      stream.on("error", (err) => {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.error("[documents] Unexpected stream error after upload:", err);
+        }
+      });
+      stream.destroy();
+
       // Clean up the temp file after upload
       fs.unlink(file.path, (err) => {
         if (err) console.error("[documents] Failed to delete temp file:", file.path, err);

@@ -50,7 +50,7 @@ export function UploadButton({ spaceId, sectionId, folderId }: Props) {
         setState({ status: 'error', message: (err as Error).message });
       }
     },
-    [spaceId, router]
+    [spaceId, router, sectionId, folderId]
   );
 
   const dismiss = useCallback(() => setState({ status: 'idle' }), []);

@@ -48,7 +48,14 @@ router.get('/callback', asyncHandler(async (req, res) => {
   // Build full callback URL from the request
   const callbackUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
 
-  const tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
+  let tokenSet: Awaited<ReturnType<typeof exchangeCodeForTokens>>;
+  try {
+    tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
+  } catch (err) {
+    console.error('[auth] Token exchange failed:', err);
+    res.status(500).json({ error: 'Authentication failed', code: 'AUTH_ERROR' });
+    return;
+  }
   const user = parseIdToken(tokenSet);
 
   // Store user and refresh token in session; clear OAuth state
@@ -107,7 +114,14 @@ router.post('/refresh', asyncHandler(async (req, res) => {
     return;
   }
 
-  const tokenSet = await refreshTokens(req.session.refreshToken);
+  let tokenSet: Awaited<ReturnType<typeof refreshTokens>>;
+  try {
+    tokenSet = await refreshTokens(req.session.refreshToken);
+  } catch (err) {
+    console.error('[auth] Token refresh failed:', err);
+    res.status(401).json({ error: 'Session expired', code: 'SESSION_EXPIRED' });
+    return;
+  }
   const user = parseIdToken(tokenSet);
   req.session.user = user;
   req.session.refreshToken = tokenSet.refresh_token ?? req.session.refreshToken;
