@@ -16,7 +16,7 @@ interface NavDrawerProps {
 
 function userInitials(user: SessionUser): string {
   const first = user.given_name?.[0] ?? user.name?.[0] ?? '?';
-  const last  = user.family_name?.[0] ?? '';
+  const last = user.family_name?.[0] ?? '';
   return (first + last).toUpperCase();
 }
 
@@ -73,9 +73,9 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
             <Image
               src="/snomed-logo.png"
               alt="SNOMED International"
-              width={120}
-              height={34}
-              className="h-7 w-auto object-contain"
+              width={140}
+              height={40}
+              className="h-9 w-auto object-contain"
             />
           </Link>
           <button

@@ -9,7 +9,7 @@ interface SidebarProps {
 
 function userInitials(user: SessionUser): string {
   const first = user.given_name?.[0] ?? user.name?.[0] ?? '?';
-  const last  = user.family_name?.[0] ?? '';
+  const last = user.family_name?.[0] ?? '';
   return (first + last).toUpperCase();
 }
 
@@ -19,7 +19,7 @@ function isAdminUser(user: SessionUser | null): boolean {
 }
 
 export function Sidebar({ user }: SidebarProps) {
-  const admin  = isAdminUser(user);
+  const admin = isAdminUser(user);
   const initials = user ? userInitials(user) : '?';
 
   return (
@@ -31,9 +31,9 @@ export function Sidebar({ user }: SidebarProps) {
           <Image
             src="/snomed-logo.png"
             alt="SNOMED International"
-            width={140}
-            height={40}
-            className="h-8 w-auto object-contain"
+            width={160}
+            height={46}
+            className="h-10 w-auto object-contain"
             priority
           />
         </Link>
