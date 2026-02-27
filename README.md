@@ -14,6 +14,7 @@ A bespoke governance portal replacing use of services like Atlassian Confluence 
 - **File upload** — authorised users (per-space upload groups) can upload documents directly to the Drive folder from the portal
 - **In-portal PDF viewer** — view PDFs and Google Docs (exported as PDF) without leaving the browser; avoids iOS redirecting to external apps and bypasses Google Drive firewall restrictions for restricted users
 - **Calendar integration** — upcoming meetings per space via Google Calendar API or iCal URL
+- **Forum discussions** — recent Discourse topics per space, surfaced inline from `forums.snomed.org` (configurable per environment via `DISCOURSE_URL`); graceful degradation if the forum is unreachable
 - **Unified search** — full-text search across Drive documents, calendar events, and event metadata via ⌘K command palette
 - **Admin dashboard** — portal admins can create and configure spaces, document sections, and view system-wide audit logs
 - **Comprehensive Audit Logging** — every state-changing action is recorded (who, what, when, details) and viewable by admins
@@ -44,6 +45,7 @@ BFF / Backend-for-Frontend (port 3001)
       ├──► Keycloak — OIDC auth
       ├──► Google Drive API — list, search & stream documents; upload
       ├──► Google Calendar API / iCal — upcoming meetings
+      ├──► Discourse public API — recent forum topics per space (no auth required)
       └──► SQLite / PostgreSQL — configuration & audit trail
 ```
 
@@ -111,6 +113,7 @@ quorum/
 │   │   │   ├── layout/         # Shell, Sidebar, SpaceNav, MobileHeader
 │   │   │   ├── documents/      # DocumentList, PDFViewer, UploadButton
 │   │   │   ├── calendar/       # CalendarWidget, EventCard
+│   │   │   ├── forum/          # ForumWidget — Discourse topics per space
 │   │   │   └── admin/          # AdminShell (CRUD + Audit View)
 │   │   └── lib/
 │   │   │   ├── auth.ts         # getUser() — decodes user from headers
@@ -123,10 +126,12 @@ quorum/
 │           │   ├── auth.ts      # OIDC flow & session lifecycle
 │           │   ├── documents.ts # List, download, upload (streaming)
 │           │   ├── events.ts    # Meeting doc linking & agenda management
+│           │   ├── forum.ts     # Discourse topics by spaceId or aggregate
 │           │   ├── search.ts    # Unified Drive + calendar search
 │           │   └── admin.ts     # CRUD + Audit retrieval + Backup/Restore
 │           └── services/
 │               ├── drive.ts     # Google Drive Service Account client
+│               ├── discourse.ts # Discourse public API client (mock-aware)
 │               ├── db.ts        # Knex migrations & Audit Log service
 │
 └── packages/
@@ -326,6 +331,11 @@ DATABASE_URL=file:./dev.db
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 FRONTEND_ORIGIN=http://localhost:3000
+
+# ── Discourse ─────────────────────────────────────────────────────────────────
+# Base URL of the Discourse forum. Override per environment (e.g. staging forum).
+DISCOURSE_URL=https://forums.snomed.org
+# DISCOURSE_MOCK=true   # Uncomment to return mock topics without hitting the API
 ```
 
 ### `apps/web/.env.local`
@@ -336,6 +346,10 @@ BFF_URL=http://localhost:3001
 
 # Public app name
 NEXT_PUBLIC_APP_NAME=Quorum
+
+# Discourse forum base URL — used by ForumWidget (server component) to build category links.
+# Must match the BFF value. Override per environment if using a staging forum.
+DISCOURSE_URL=https://forums.snomed.org
 
 # Development bypass (optional)
 # DEV_AUTH_BYPASS=true
@@ -367,6 +381,8 @@ Log in with a Keycloak account in the `portal_admin` group, then navigate to `/a
 
 ### Space & Section Configuration
 A **Space** represents a governance group (e.g. "Management Board"). Each space maps a Keycloak group to a Google Drive folder. **Sections** subdivide documents into categories like "Agendas" or "Papers".
+
+Each space can optionally be linked to a **Discourse category** by entering the category slug (e.g. `board-members`) in the admin form. When set, recent topics from that category appear as a widget on the space overview page, linking out to `forums.snomed.org`.
 
 ### Audit Logs
 The **Audit Log** tab provides a real-time feed of all modifications:

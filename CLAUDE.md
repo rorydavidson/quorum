@@ -40,8 +40,9 @@ Primary goal: a clean, professional, **iPadOS-optimised** interface for board me
 | Auth | Keycloak OIDC | Existing SNOMED SSO (`snoauth.ihtsdotools.org`) |
 | Drive integration | Google Drive API (Service Account) | Read/list/proxy documents |
 | Calendar | Google Calendar API | Upcoming meetings per group |
+| Forum | Discourse public API (forums.snomed.org) | Recent topics per space, no auth required |
 | Search | Google Drive search API (phase 1), AWS OpenSearch (phase 2) | Unified search |
-| Local DB | SQLite (dev) / PostgreSQL (prod) | Admin config: group→Drive/Calendar mappings |
+| Local DB | SQLite (dev) / PostgreSQL (prod) | Admin config: group→Drive/Calendar/Discourse mappings |
 | PDF Viewer | react-pdf (PDF.js) | In-portal viewer, avoids iPadOS app redirects |
 | Styling | Tailwind CSS + shadcn/ui | Customised to SNOMED brand |
 | Package manager | pnpm | Monorepo support, disk efficiency |
@@ -68,6 +69,7 @@ quorum/
 │   │   │   ├── layout/         # Shell, Sidebar, Header, MobileNav
 │   │   │   ├── documents/      # DocumentList, DocumentCard, PDFViewer modal
 │   │   │   ├── calendar/       # CalendarWidget, EventCard
+│   │   │   ├── forum/          # ForumWidget — Discourse topics per space
 │   │   │   ├── search/         # SearchBar, SearchResults
 │   │   │   └── admin/          # SpaceMapping, CalendarMapping forms
 │   │   ├── lib/
@@ -80,16 +82,18 @@ quorum/
 │   └── bff/                    # Backend for Frontend (Node.js/Express)
 │       ├── src/
 │       │   ├── routes/
-│       │   │   ├── auth.ts     # /auth/login, /auth/callback, /auth/logout, /auth/session
+│       │   │   ├── auth.ts      # /auth/login, /auth/callback, /auth/logout, /auth/session
 │       │   │   ├── documents.ts # /documents/:spaceId — list & proxy
-│       │   │   ├── calendar.ts  # /calendar/:groupId — upcoming events
+│       │   │   ├── calendar.ts  # /calendar — upcoming events (by spaceId or aggregate)
+│       │   │   ├── forum.ts     # /forum — Discourse topics (by spaceId or aggregate)
 │       │   │   ├── search.ts    # /search — unified search
-│       │   │   └── admin.ts    # /admin — CRUD for space/calendar mappings
+│       │   │   └── admin.ts     # /admin — CRUD for space/calendar/discourse mappings
 │       │   ├── services/
-│       │   │   ├── keycloak.ts # OIDC token exchange, JWKS verification
-│       │   │   ├── drive.ts    # Google Drive Service Account client
-│       │   │   ├── calendar.ts # Google Calendar Service Account client
-│       │   │   └── db.ts       # Knex/better-sqlite3 — space config store
+│       │   │   ├── keycloak.ts  # OIDC token exchange, JWKS verification
+│       │   │   ├── drive.ts     # Google Drive Service Account client
+│       │   │   ├── calendar.ts  # Google Calendar Service Account client
+│       │   │   ├── discourse.ts # Discourse public API client (mock-aware)
+│       │   │   └── db.ts        # Knex/better-sqlite3 — space config store
 │       │   ├── middleware/
 │       │   │   ├── requireAuth.ts  # Validate session cookie
 │       │   │   └── requireAdmin.ts # Check portal_admin group
@@ -168,9 +172,13 @@ BFF (port 3001)
      ├──► Google Calendar API
      │      Service Account, list events per calendar ID
      │
+     ├──► Discourse public API (forums.snomed.org)
+     │      No auth — public categories; graceful degradation on failure
+     │
      └──► SQLite / Postgres
             Admin config: group → Drive folder ID
                           group → Calendar ID
+                          group → Discourse category slug
                           hierarchy definitions
 ```
 
@@ -283,6 +291,10 @@ DATABASE_URL=file:./dev.db
 
 # Frontend origin (for CORS)
 FRONTEND_ORIGIN=http://localhost:3000
+
+# Discourse forum base URL (override per environment if using a staging forum)
+DISCOURSE_URL=https://forums.snomed.org
+# DISCOURSE_MOCK=true   # uncomment to use hardcoded mock data (set automatically in tests)
 ```
 
 ### `apps/web/.env.local`
@@ -294,6 +306,10 @@ BFF_URL=http://localhost:3001
 # Public-safe config only
 NEXT_PUBLIC_APP_NAME=Quorum
 NEXT_PUBLIC_KEYCLOAK_REALM=snomed
+
+# Discourse forum base URL — used by ForumWidget (server component) to build category links.
+# Must match the BFF value. Override per environment if using a staging forum.
+DISCOURSE_URL=https://forums.snomed.org
 ```
 
 ---
@@ -318,12 +334,27 @@ interface SpaceConfig {
   id: string;
   name: string;
   description?: string;
-  keycloakGroup: string;      // e.g. "/board-members"
-  driveFolderId: string;      // Google Drive folder ID
-  calendarId?: string;        // Google Calendar ID
-  hierarchyCategory: string;  // e.g. "Board Level", "Working Groups"
-  uploadGroups: string[];     // groups allowed to upload
+  keycloakGroup: string;           // e.g. "/board-members"
+  driveFolderId: string;           // Google Drive folder ID
+  calendarId?: string;             // Google Calendar ID
+  icalUrl?: string;                // iCal feed URL (alternative to Google Calendar)
+  discourseCategorySlug?: string;  // e.g. "board-members" — forum widget shown when set
+  hierarchyCategory: string;       // e.g. "Board Level", "Working Groups"
+  uploadGroups: string[];          // groups allowed to upload
   sortOrder: number;
+}
+
+// Discourse forum topic (from forums.snomed.org public API)
+interface DiscoursePost {
+  id: number;
+  title: string;
+  slug: string;
+  postsCount: number;
+  replyCount: number;
+  views: number;
+  createdAt: string;       // ISO 8601
+  lastPostedAt: string;    // ISO 8601
+  url: string;             // https://forums.snomed.org/t/{slug}/{id}
 }
 
 // Document listing entry
@@ -375,7 +406,7 @@ See `plan.md` for detailed tasks per phase. Summary:
 | 7 | Admin dashboard | `[x] DONE` |
 | 8 | Official Records / Snapshots | `[ ] TODO` |
 | 9 | Upload functionality | `[x] DONE` |
-| 10 | Integration of Discourse forums per space | `[ ] TODO` |
+| 10 | Discourse forum widget per space | `[x] DONE` |
 | 11 | AWS deployment | `[ ] TODO` |
 
 **Update this table as phases complete.**
@@ -392,7 +423,7 @@ See `plan.md` for detailed tasks per phase. Summary:
 
 ---
 
-## Deployment (Future Phase 10)
+## Deployment (Future Phase 11)
 
 ```
 Local dev  →  Docker Compose (web + bff + postgres)
