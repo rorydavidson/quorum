@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { getEventMetadata, upsertEventMetadata, getSpaceById } from "../services/db.js";
+import { getEventMetadata, upsertEventMetadata, getSpaceById, createAuditLog } from "../services/db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { userCanAccessSpace, isAdminUser } from "./documents.js";
 
@@ -83,7 +83,34 @@ router.post(
             return;
         }
 
+        // Fetch existing metadata for comparison
+        const existing = await getEventMetadata(eventId);
         const updated = await upsertEventMetadata(eventId, spaceId, payload);
+
+        // Audit Logging
+        let action = "UPDATE_EVENT_AGENDA";
+        if (payload.googleDocUrl !== undefined) {
+            action = "UPDATE_EVENT_DOC";
+        } else if (payload.agendaItems !== undefined && existing) {
+            if (payload.agendaItems.length < existing.agendaItems.length) {
+                action = "DELETE_EVENT_AGENDA";
+            } else if (payload.agendaItems.length > existing.agendaItems.length) {
+                action = "CREATE_EVENT_AGENDA";
+            }
+        }
+
+        await createAuditLog({
+            userId: user.sub,
+            userName: user.name,
+            action,
+            entityType: "EVENT",
+            entityId: eventId,
+            details: JSON.stringify({
+                spaceId,
+                updates: payload
+            })
+        });
+
         res.json(updated);
     }),
 );

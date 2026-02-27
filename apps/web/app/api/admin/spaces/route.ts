@@ -14,6 +14,11 @@ async function bffProxy(method: string, path: string, cookie: string, body?: unk
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+
+  if (res.status === 204) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   return NextResponse.json(data, { status: res.status });

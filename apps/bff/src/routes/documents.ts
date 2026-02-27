@@ -10,7 +10,7 @@ import fs from "fs";
 import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { getSpaces, getSpaceById, getSectionById } from "../services/db.js";
+import { getSpaces, getSpaceById, getSectionById, createAuditLog } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile } from "../services/drive.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
@@ -377,6 +377,20 @@ router.post(
       });
 
       res.status(201).json(driveFile);
+
+      // Audit Logging
+      await createAuditLog({
+        userId: user.sub,
+        userName: user.name,
+        action: "UPLOAD_DOCUMENT",
+        entityType: "DOCUMENT",
+        entityId: driveFile.id,
+        details: JSON.stringify({
+          spaceId: space.id,
+          name: file.originalname,
+          folderId: targetFolderId,
+        }),
+      });
     } catch (err) {
       console.error("[documents] Upload error:", err);
       // Best effort cleanup if upload fails

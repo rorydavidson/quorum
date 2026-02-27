@@ -12,6 +12,8 @@ import {
   getSectionById,
   getBackup,
   restoreBackup,
+  createAuditLog,
+  getAuditLogs,
 } from "../services/db.js";
 
 const router: IRouter = Router();
@@ -109,6 +111,16 @@ router.post("/spaces", async (req: Request, res: Response): Promise<void> => {
     sortOrder: body.sortOrder ?? 0,
   });
 
+  const user = req.session.user!;
+  await createAuditLog({
+    userId: user.sub,
+    userName: user.name,
+    action: "CREATE_SPACE",
+    entityType: "SPACE",
+    entityId: body.id,
+    details: JSON.stringify(body),
+  });
+
   res.status(201).json(space);
 });
 
@@ -136,6 +148,16 @@ router.put(
       sortOrder: body.sortOrder ?? 0,
     });
 
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "UPDATE_SPACE",
+      entityType: "SPACE",
+      entityId: id,
+      details: JSON.stringify(body),
+    });
+
     res.json(space);
   },
 );
@@ -154,6 +176,17 @@ router.delete(
       return;
     }
     await deleteSpace(id);
+
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "DELETE_SPACE",
+      entityType: "SPACE",
+      entityId: id,
+      details: JSON.stringify(existing),
+    });
+
     res.status(204).end();
   },
 );
@@ -211,6 +244,16 @@ router.post(
       sortOrder: body.sortOrder ?? 0,
     });
 
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "CREATE_SECTION",
+      entityType: "SECTION",
+      entityId: body.id,
+      details: JSON.stringify({ spaceId, ...body }),
+    });
+
     res.status(201).json(section);
   },
 );
@@ -242,6 +285,16 @@ router.put(
       sortOrder: body.sortOrder ?? 0,
     });
 
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "UPDATE_SECTION",
+      entityType: "SECTION",
+      entityId: sectionId,
+      details: JSON.stringify({ spaceId, ...body }),
+    });
+
     res.json(section);
   },
 );
@@ -263,6 +316,17 @@ router.delete(
     }
 
     await deleteSection(spaceId, sectionId);
+
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "DELETE_SECTION",
+      entityType: "SECTION",
+      entityId: sectionId,
+      details: JSON.stringify({ spaceId, sectionId }),
+    });
+
     res.status(204).end();
   },
 );
@@ -286,11 +350,30 @@ router.post("/import", async (req: Request, res: Response): Promise<void> => {
       return;
     }
     await restoreBackup(backup);
+
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "RESTORE_BACKUP",
+      entityType: "SITE",
+      entityId: "SITE",
+    });
+
     res.json({ message: "Backup restored successfully" });
   } catch (err) {
-    console.error('[admin] Import failed:', err);
     res.status(500).json({ error: "Import failed", code: "IMPORT_FAILED" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+
+router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => {
+  const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 100;
+  const logs = await getAuditLogs(limit);
+  res.json(logs);
 });
 
 export default router;

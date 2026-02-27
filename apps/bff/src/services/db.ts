@@ -1,5 +1,5 @@
 import Knex from 'knex';
-import { SpaceConfig, SpaceSection, EventMetadata } from '@snomed/types';
+import { SpaceConfig, SpaceSection, EventMetadata, AuditLog } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Knex instance
@@ -67,6 +67,21 @@ export async function runMigrations(): Promise<void> {
       t.text('agenda_items').notNullable().defaultTo('[]'); // JSON
     });
     console.log('[db] Created event_metadata table');
+  }
+
+  const hasAuditLogs = await db.schema.hasTable('audit_logs');
+  if (!hasAuditLogs) {
+    await db.schema.createTable('audit_logs', (t) => {
+      t.increments('id').primary();
+      t.timestamp('timestamp').notNullable().defaultTo(db.fn.now());
+      t.string('user_id').notNullable();
+      t.string('user_name').notNullable();
+      t.string('action').notNullable();
+      t.string('entity_type').notNullable();
+      t.string('entity_id').notNullable();
+      t.text('details').nullable(); // JSON
+    });
+    console.log('[db] Created audit_logs table');
   }
 }
 
@@ -349,6 +364,38 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
       }
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+
+export async function createAuditLog(log: Omit<AuditLog, 'id' | 'timestamp'>): Promise<void> {
+  await db('audit_logs').insert({
+    user_id: log.userId,
+    user_name: log.userName,
+    action: log.action,
+    entity_type: log.entityType,
+    entity_id: log.entityId,
+    details: log.details,
+  });
+}
+
+export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
+  const rows = await db('audit_logs')
+    .orderBy('timestamp', 'desc')
+    .limit(limit);
+
+  return rows.map((r) => ({
+    id: r.id,
+    timestamp: r.timestamp,
+    userId: r.user_id,
+    userName: r.user_name,
+    action: r.action,
+    entityType: r.entity_type,
+    entityId: r.entity_id,
+    details: r.details,
+  }));
 }
 
 export default db;
