@@ -12,6 +12,7 @@ import {
   getSectionById,
   getBackup,
   restoreBackup,
+  resetSite,
   createAuditLog,
   getAuditLogs,
 } from "../services/db.js";
@@ -434,6 +435,25 @@ router.post("/import", async (req: Request, res: Response): Promise<void> => {
     res.json({ message: "Backup restored successfully" });
   } catch (err) {
     res.status(500).json({ error: "Import failed", code: "IMPORT_FAILED" });
+  }
+});
+
+router.post("/reset", async (req: Request, res: Response): Promise<void> => {
+  try {
+    await resetSite();
+
+    const user = req.session.user!;
+    await createAuditLog({
+      userId: user.sub,
+      userName: user.name,
+      action: "RESET_SITE",
+      entityType: "SITE",
+      entityId: "SITE",
+    });
+
+    res.json({ message: "Site reset successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Reset failed", code: "RESET_FAILED" });
   }
 });
 

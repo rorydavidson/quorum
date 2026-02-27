@@ -17,6 +17,7 @@ import {
   Download,
   Upload,
   Info,
+  RotateCcw,
 } from 'lucide-react';
 import type { SpaceConfig, SpaceSection, AuditLog } from '@snomed/types';
 
@@ -379,6 +380,34 @@ export function AdminShell({ initialSpaces }: Props) {
     }
   }
 
+  async function resetSiteSettings() {
+    if (!confirm('This will DELETE all spaces, sections, and site settings. A backup will be downloaded first. Are you absolutely sure?')) {
+      return;
+    }
+
+    // Second confirmation for such a destructive action
+    if (!confirm('FINAL WARNING: This action is permanent (though you will have the backup file). Proceed?')) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      // 1. Export first
+      await exportSettings();
+
+      // 2. Clear
+      const res = await fetch('/api/admin/reset', { method: 'POST' });
+      if (!res.ok) throw new Error('Reset failed');
+
+      await refreshSpaces();
+      showToast('Site settings cleared and backup downloaded.', 'success');
+    } catch (err) {
+      showToast('An error occurred during reset.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Render: Space Form
   // ---------------------------------------------------------------------------
@@ -682,6 +711,15 @@ export function AdminShell({ initialSpaces }: Props) {
                 <Plus size={16} />
                 New Space
               </button>
+              <button
+                onClick={resetSiteSettings}
+                disabled={saving}
+                className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors min-h-[44px] disabled:opacity-50"
+                title="Download backup and clear all site settings"
+              >
+                <RotateCcw size={16} />
+                Reset Site
+              </button>
             </>
           )}
           {view === 'audit-log' && (
@@ -696,222 +734,224 @@ export function AdminShell({ initialSpaces }: Props) {
         </div>
       </div>
 
-      {view === 'audit-log' ? (
-        <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-snomed-border">
-                  <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Timestamp</th>
-                  <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">User</th>
-                  <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Action</th>
-                  <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Entity</th>
-                  <th className="px-0 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider w-10"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-snomed-border">
-                {loadingLogs && auditLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">Loading logs...</td>
+      {
+        view === 'audit-log' ? (
+          <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-snomed-border">
+                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Timestamp</th>
+                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">User</th>
+                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Action</th>
+                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Entity</th>
+                    <th className="px-0 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider w-10"></th>
                   </tr>
-                ) : auditLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">No audit logs found.</td>
-                  </tr>
-                ) : (
-                  auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-50 transition-colors group">
-                      <td className="px-5 py-4 whitespace-nowrap text-xs text-snomed-grey/70">
-                        {new Date(log.timestamp).toLocaleString('en-GB', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit'
-                        })}
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <p className="font-medium text-snomed-grey text-xs">{log.userName}</p>
-                        <p className="text-[10px] text-snomed-grey/40 font-mono">{log.userId.slice(0, 8)}...</p>
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${log.action.startsWith('DELETE') ? 'bg-red-50 text-red-700' :
-                          log.action.startsWith('CREATE') || log.action.includes('UPLOAD') ? 'bg-green-50 text-green-700' :
-                            'bg-snomed-blue-light text-snomed-blue'
-                          }`}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <p className="text-xs text-snomed-grey font-medium">{log.entityType}</p>
-                        <p className="text-[10px] text-snomed-grey/40 font-mono truncate max-w-[120px]" title={log.entityId}>
-                          {log.entityId}
-                        </p>
-                      </td>
-                      <td className="px-2 py-4 text-right">
-                        {log.details && (
-                          <div className="relative group/details">
-                            <Info size={14} className="text-snomed-grey/30 hover:text-snomed-blue cursor-help" />
-                            <div className="absolute right-full bottom-0 mr-3 hidden group-hover/details:block z-50 w-64 p-3 bg-white border border-snomed-border rounded-lg shadow-xl text-[10px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
-                              {JSON.stringify(JSON.parse(log.details), null, 2)}
-                            </div>
-                          </div>
-                        )}
-                      </td>
+                </thead>
+                <tbody className="divide-y divide-snomed-border">
+                  {loadingLogs && auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">Loading logs...</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {spaces.length === 0 && (
-            <div className="rounded-xl border border-dashed border-snomed-border bg-white p-12 text-center">
-              <Settings size={32} className="mx-auto mb-3 text-snomed-grey/30" />
-              <p className="text-sm text-snomed-grey/60">No spaces configured yet.</p>
-              <button
-                onClick={openCreateSpace}
-                className="mt-3 text-sm text-snomed-blue hover:underline"
-              >
-                Create your first space →
-              </button>
-            </div>
-          )}
-
-          {spaces.map((space) => {
-            const isExpanded = expandedSpaceId === space.id;
-            const isDeleting = deleting === space.id;
-
-            return (
-              <div
-                key={space.id}
-                className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden"
-              >
-                {/* Space row */}
-                <div className="flex items-center gap-3 px-5 py-4">
-                  <button
-                    onClick={() => {
-                      setExpandedSpaceId(isExpanded ? null : space.id);
-                    }}
-                    className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-snomed-blue-light transition-colors"
-                    aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                  >
-                    {isExpanded
-                      ? <ChevronDown size={16} className="text-snomed-blue" />
-                      : <ChevronRight size={16} className="text-snomed-grey/50" />
-                    }
-                  </button>
-
-                  <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-snomed-blue-light flex items-center justify-center">
-                    <FolderOpen size={17} className="text-snomed-blue" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm text-snomed-grey">{space.name}</span>
-                      <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/60 px-1.5 py-0.5 rounded">
-                        {space.id}
-                      </span>
-                      <span className="text-[11px] bg-snomed-blue-light text-snomed-blue px-1.5 py-0.5 rounded">
-                        {space.hierarchyCategory}
-                      </span>
-                      {space.sections.length > 0 && (
-                        <span className="text-[11px] text-snomed-grey/50">
-                          {space.sections.length} section{space.sections.length !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-snomed-grey/50 mt-0.5 truncate">
-                      Group: <span className="font-mono">{space.keycloakGroup}</span>
-                    </p>
-                  </div>
-
-                  <div className="flex-shrink-0 flex items-center gap-1">
-                    <button
-                      onClick={() => openEditSpace(space)}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-snomed-blue-light hover:text-snomed-blue transition-colors min-h-[36px]"
-                    >
-                      <Pencil size={13} />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => confirmDeleteSpace(space)}
-                      disabled={isDeleting}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors min-h-[36px] disabled:opacity-40"
-                    >
-                      <Trash2 size={13} />
-                      {isDeleting ? '…' : 'Delete'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded: sections */}
-                {isExpanded && (
-                  <div className="border-t border-snomed-border bg-snomed-blue-light/20">
-                    {/* Section list */}
-                    {space.sections.length > 0 && (
-                      <div className="divide-y divide-snomed-border/60">
-                        {space.sections.map((section) => {
-                          const sectionDeleting = deleting === `${space.id}:${section.id}`;
-                          return (
-                            <div key={section.id} className="flex items-center gap-3 pl-14 pr-5 py-3">
-                              <Folder size={15} className="flex-shrink-0 text-snomed-blue/60" />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm text-snomed-grey font-medium">{section.name}</span>
-                                  <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/50 px-1 py-0.5 rounded">
-                                    {section.id}
-                                  </span>
-                                </div>
-                                {section.description && (
-                                  <p className="text-xs text-snomed-grey/50 truncate">{section.description}</p>
-                                )}
-                                <p className="text-[11px] font-mono text-snomed-grey/40 mt-0.5 truncate">
-                                  {section.driveFolderId}
-                                </p>
-                              </div>
-                              <div className="flex-shrink-0 flex items-center gap-1">
-                                <button
-                                  onClick={() => openEditSection(space.id, section)}
-                                  className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-white hover:text-snomed-blue transition-colors"
-                                >
-                                  <Pencil size={12} />
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => confirmDeleteSection(space.id, section)}
-                                  disabled={sectionDeleting}
-                                  className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-40"
-                                >
-                                  <Trash2 size={12} />
-                                  {sectionDeleting ? '…' : 'Delete'}
-                                </button>
+                  ) : auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">No audit logs found.</td>
+                    </tr>
+                  ) : (
+                    auditLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-gray-50 transition-colors group">
+                        <td className="px-5 py-4 whitespace-nowrap text-xs text-snomed-grey/70">
+                          {new Date(log.timestamp).toLocaleString('en-GB', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <p className="font-medium text-snomed-grey text-xs">{log.userName}</p>
+                          <p className="text-[10px] text-snomed-grey/40 font-mono">{log.userId.slice(0, 8)}...</p>
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${log.action.startsWith('DELETE') ? 'bg-red-50 text-red-700' :
+                            log.action.startsWith('CREATE') || log.action.includes('UPLOAD') ? 'bg-green-50 text-green-700' :
+                              'bg-snomed-blue-light text-snomed-blue'
+                            }`}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <p className="text-xs text-snomed-grey font-medium">{log.entityType}</p>
+                          <p className="text-[10px] text-snomed-grey/40 font-mono truncate max-w-[120px]" title={log.entityId}>
+                            {log.entityId}
+                          </p>
+                        </td>
+                        <td className="px-2 py-4 text-right">
+                          {log.details && (
+                            <div className="relative group/details">
+                              <Info size={14} className="text-snomed-grey/30 hover:text-snomed-blue cursor-help" />
+                              <div className="absolute right-full bottom-0 mr-3 hidden group-hover/details:block z-50 w-64 p-3 bg-white border border-snomed-border rounded-lg shadow-xl text-[10px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                                {JSON.stringify(JSON.parse(log.details), null, 2)}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {spaces.length === 0 && (
+              <div className="rounded-xl border border-dashed border-snomed-border bg-white p-12 text-center">
+                <Settings size={32} className="mx-auto mb-3 text-snomed-grey/30" />
+                <p className="text-sm text-snomed-grey/60">No spaces configured yet.</p>
+                <button
+                  onClick={openCreateSpace}
+                  className="mt-3 text-sm text-snomed-blue hover:underline"
+                >
+                  Create your first space →
+                </button>
+              </div>
+            )}
 
-                    {/* Add section button */}
-                    <div className="pl-14 pr-5 py-3 border-t border-snomed-border/60">
+            {spaces.map((space) => {
+              const isExpanded = expandedSpaceId === space.id;
+              const isDeleting = deleting === space.id;
+
+              return (
+                <div
+                  key={space.id}
+                  className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden"
+                >
+                  {/* Space row */}
+                  <div className="flex items-center gap-3 px-5 py-4">
+                    <button
+                      onClick={() => {
+                        setExpandedSpaceId(isExpanded ? null : space.id);
+                      }}
+                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-snomed-blue-light transition-colors"
+                      aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                    >
+                      {isExpanded
+                        ? <ChevronDown size={16} className="text-snomed-blue" />
+                        : <ChevronRight size={16} className="text-snomed-grey/50" />
+                      }
+                    </button>
+
+                    <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-snomed-blue-light flex items-center justify-center">
+                      <FolderOpen size={17} className="text-snomed-blue" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-snomed-grey">{space.name}</span>
+                        <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/60 px-1.5 py-0.5 rounded">
+                          {space.id}
+                        </span>
+                        <span className="text-[11px] bg-snomed-blue-light text-snomed-blue px-1.5 py-0.5 rounded">
+                          {space.hierarchyCategory}
+                        </span>
+                        {space.sections.length > 0 && (
+                          <span className="text-[11px] text-snomed-grey/50">
+                            {space.sections.length} section{space.sections.length !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-snomed-grey/50 mt-0.5 truncate">
+                        Group: <span className="font-mono">{space.keycloakGroup}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex-shrink-0 flex items-center gap-1">
                       <button
-                        onClick={() => openCreateSection(space.id)}
-                        className="flex items-center gap-2 text-xs text-snomed-blue hover:text-snomed-dark-blue transition-colors min-h-[36px]"
+                        onClick={() => openEditSpace(space)}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-snomed-blue-light hover:text-snomed-blue transition-colors min-h-[36px]"
                       >
-                        <Plus size={14} />
-                        Add document section
+                        <Pencil size={13} />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => confirmDeleteSpace(space)}
+                        disabled={isDeleting}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors min-h-[36px] disabled:opacity-40"
+                      >
+                        <Trash2 size={13} />
+                        {isDeleting ? '…' : 'Delete'}
                       </button>
                     </div>
-
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+
+                  {/* Expanded: sections */}
+                  {isExpanded && (
+                    <div className="border-t border-snomed-border bg-snomed-blue-light/20">
+                      {/* Section list */}
+                      {space.sections.length > 0 && (
+                        <div className="divide-y divide-snomed-border/60">
+                          {space.sections.map((section) => {
+                            const sectionDeleting = deleting === `${space.id}:${section.id}`;
+                            return (
+                              <div key={section.id} className="flex items-center gap-3 pl-14 pr-5 py-3">
+                                <Folder size={15} className="flex-shrink-0 text-snomed-blue/60" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm text-snomed-grey font-medium">{section.name}</span>
+                                    <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/50 px-1 py-0.5 rounded">
+                                      {section.id}
+                                    </span>
+                                  </div>
+                                  {section.description && (
+                                    <p className="text-xs text-snomed-grey/50 truncate">{section.description}</p>
+                                  )}
+                                  <p className="text-[11px] font-mono text-snomed-grey/40 mt-0.5 truncate">
+                                    {section.driveFolderId}
+                                  </p>
+                                </div>
+                                <div className="flex-shrink-0 flex items-center gap-1">
+                                  <button
+                                    onClick={() => openEditSection(space.id, section)}
+                                    className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-white hover:text-snomed-blue transition-colors"
+                                  >
+                                    <Pencil size={12} />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => confirmDeleteSection(space.id, section)}
+                                    disabled={sectionDeleting}
+                                    className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-40"
+                                  >
+                                    <Trash2 size={12} />
+                                    {sectionDeleting ? '…' : 'Delete'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Add section button */}
+                      <div className="pl-14 pr-5 py-3 border-t border-snomed-border/60">
+                        <button
+                          onClick={() => openCreateSection(space.id)}
+                          className="flex items-center gap-2 text-xs text-snomed-blue hover:text-snomed-dark-blue transition-colors min-h-[36px]"
+                        >
+                          <Plus size={14} />
+                          Add document section
+                        </button>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
+      }
 
       {toast && <Toast message={toast.message} type={toast.type} />}
-    </div>
+    </div >
   );
 }

@@ -330,20 +330,26 @@ export interface SiteBackup {
   version: number;
   timestamp: string;
   spaces: SpaceConfig[];
+  eventMetadata: EventMetadata[];
 }
 
 export async function getBackup(): Promise<SiteBackup> {
   const spaces = await getSpaces();
+  const eventMetadataRows = await db<EventMetadataRow>('event_metadata');
+  const eventMetadata = eventMetadataRows.map(rowToEventMetadata);
+
   return {
     version: 1,
     timestamp: new Date().toISOString(),
     spaces,
+    eventMetadata,
   };
 }
 
 export async function restoreBackup(backup: SiteBackup): Promise<void> {
   await db.transaction(async (trx) => {
     // 1. Clear existing data
+    await trx('event_metadata').delete();
     await trx('space_sections').delete();
     await trx('spaces').delete();
 
@@ -376,6 +382,27 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         await trx('space_sections').insert(sectionRow);
       }
     }
+
+    // 3. Insert event metadata
+    if (backup.eventMetadata) {
+      for (const meta of backup.eventMetadata) {
+        const row: EventMetadataRow = {
+          id: meta.id,
+          space_id: meta.spaceId,
+          google_doc_url: meta.googleDocUrl ?? null,
+          agenda_items: JSON.stringify(meta.agendaItems),
+        };
+        await trx('event_metadata').insert(row);
+      }
+    }
+  });
+}
+
+export async function resetSite(): Promise<void> {
+  await db.transaction(async (trx) => {
+    await trx('event_metadata').delete();
+    await trx('space_sections').delete();
+    await trx('spaces').delete();
   });
 }
 

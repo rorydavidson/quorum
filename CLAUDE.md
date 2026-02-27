@@ -404,7 +404,7 @@ See `plan.md` for detailed tasks per phase. Summary:
 | 5 | Calendar widget | `[x] DONE` |
 | 6 | Unified search | `[x] DONE` |
 | 7 | Admin dashboard | `[x] DONE` |
-| 8 | Official Records / Snapshots | `[ ] TODO` |
+| 8 | Official Records / Snapshots | `[x] DONE` |
 | 9 | Upload functionality | `[x] DONE` |
 | 10 | Discourse forum widget per space | `[x] DONE` |
 | 11 | AWS deployment | `[ ] TODO` |
