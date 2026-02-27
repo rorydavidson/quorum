@@ -1,9 +1,14 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Plus, Trash2, CheckCircle2, Circle, Save, FileText } from 'lucide-react';
+import { useState, useCallback, lazy, Suspense } from 'react';
+import { Plus, Trash2, CheckCircle2, Circle, Save, FileText, ExternalLink, Eye } from 'lucide-react';
 import type { EventMetadata, AgendaItem } from '@snomed/types';
-import { updateEventMetadata } from '@/lib/api-client';
+import { updateEventMetadata, fileDownloadUrl, fileForceDownloadUrl } from '@/lib/api-client';
+
+// Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
+const PDFViewer = lazy(() =>
+    import('@/components/documents/PDFViewer').then((m) => ({ default: m.PDFViewer }))
+);
 
 interface Props {
     spaceId: string;
@@ -17,6 +22,7 @@ export function EventForm({ spaceId, eventId, initialMetadata }: Props) {
     const [newAgendaResponsible, setNewAgendaResponsible] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showViewer, setShowViewer] = useState(false);
 
     const save = useCallback(async (updates: Partial<EventMetadata>) => {
         setIsSaving(true);
@@ -71,9 +77,12 @@ export function EventForm({ spaceId, eventId, initialMetadata }: Props) {
         save({ agendaItems: updatedItems });
     };
 
-    // Extract Doc ID for better embed
+    // Extract Doc ID to use our internal PDF proxy
     const docIdMatch = metadata.googleDocUrl?.match(/[-\w]{25,}/);
-    const embedUrl = docIdMatch ? `https://docs.google.com/document/d/${docIdMatch[0]}/preview` : null;
+    const docId = docIdMatch ? docIdMatch[0] : null;
+
+    const downloadUrl = docId ? fileDownloadUrl(spaceId, docId) : '';
+    const forceDownloadUrl = docId ? fileForceDownloadUrl(spaceId, docId) : '';
 
     return (
         <div className="space-y-8">
@@ -98,6 +107,18 @@ export function EventForm({ spaceId, eventId, initialMetadata }: Props) {
                             onBlur={handleDocUrlBlur}
                             className="flex-1 px-4 py-2 text-sm border border-snomed-border rounded-lg focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue transition-all"
                         />
+                        {metadata.googleDocUrl && (
+                            <a
+                                href={metadata.googleDocUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 border border-snomed-border text-snomed-grey text-sm font-medium rounded-lg hover:bg-gray-50 transition-all flex items-center gap-2"
+                                title="Open in Google Docs"
+                            >
+                                <FileText size={16} />
+                                <span className="hidden sm:inline">Open</span>
+                            </a>
+                        )}
                         <button
                             onClick={() => save({ googleDocUrl: metadata.googleDocUrl })}
                             disabled={isSaving}
@@ -110,13 +131,24 @@ export function EventForm({ spaceId, eventId, initialMetadata }: Props) {
                     {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
                 </div>
 
-                {embedUrl ? (
-                    <div className="w-full aspect-[4/3] sm:aspect-video rounded-lg border border-snomed-border overflow-hidden bg-gray-50">
-                        <iframe
-                            src={embedUrl}
-                            className="w-full h-full border-none"
-                            title="Meeting Document Preview"
-                        />
+                {docId ? (
+                    <div
+                        onClick={() => setShowViewer(true)}
+                        className="group relative w-full p-8 rounded-xl border border-snomed-border bg-gray-50 flex flex-col items-center justify-center gap-4 cursor-pointer hover:bg-snomed-blue/[0.02] hover:border-snomed-blue/30 transition-all"
+                    >
+                        <div className="w-16 h-16 rounded-2xl bg-white shadow-sm flex items-center justify-center text-snomed-blue group-hover:scale-110 transition-transform">
+                            <FileText size={32} />
+                        </div>
+                        <div className="text-center">
+                            <p className="text-sm font-medium text-snomed-grey">Meeting Document (PDF)</p>
+                            <p className="text-xs text-snomed-grey/40 mt-1">Click to view in the secure portal viewer</p>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-snomed-border text-xs font-medium text-snomed-grey hover:text-snomed-blue transition-colors">
+                                <Eye size={14} />
+                                Preview
+                            </span>
+                        </div>
                     </div>
                 ) : metadata.googleDocUrl ? (
                     <div className="p-12 text-center bg-gray-50 rounded-lg border border-dashed border-snomed-border">
@@ -204,6 +236,18 @@ export function EventForm({ spaceId, eventId, initialMetadata }: Props) {
                     </button>
                 </form>
             </div>
+
+            {/* PDF Viewer Overlay */}
+            {showViewer && docId && (
+                <Suspense fallback={null}>
+                    <PDFViewer
+                        url={downloadUrl}
+                        downloadUrl={forceDownloadUrl}
+                        filename="Meeting Document.pdf"
+                        onClose={() => setShowViewer(false)}
+                    />
+                </Suspense>
+            )}
         </div>
     );
 }
