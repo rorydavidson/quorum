@@ -55,13 +55,14 @@ async function proxyToBff(request: NextRequest): Promise<NextResponse> {
 }
 
 function forwardSetCookie(from: Response, to: NextResponse): void {
-  // fetch API doesn't expose Set-Cookie as an array natively, but we can iterate
-  from.headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'set-cookie') {
-      to.headers.append('set-cookie', value);
-    }
-  });
+  // getSetCookie() correctly preserves multiple Set-Cookie headers
+  // including those containing commas (like Expires=...) which can be
+  // corrupted by standard .get() or .forEach()
+  const setCookies = from.headers.getSetCookie();
+  for (const cookie of setCookies) {
+    to.headers.append('set-cookie', cookie);
+  }
 }
 
-export const GET  = proxyToBff;
+export const GET = proxyToBff;
 export const POST = proxyToBff;

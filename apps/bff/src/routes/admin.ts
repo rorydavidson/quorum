@@ -10,6 +10,8 @@ import {
   upsertSection,
   deleteSection,
   getSectionById,
+  getBackup,
+  restoreBackup,
 } from "../services/db.js";
 
 const router: IRouter = Router();
@@ -264,5 +266,31 @@ router.delete(
     res.status(204).end();
   },
 );
+
+// ---------------------------------------------------------------------------
+// Backup & Import
+// ---------------------------------------------------------------------------
+
+router.get("/backup", async (_req: Request, res: Response): Promise<void> => {
+  const backup = await getBackup();
+  res.header("Content-Type", "application/json");
+  res.header("Content-Disposition", `attachment; filename="snomed-spaces-backup-${new Date().toISOString().split('T')[0]}.json"`);
+  res.send(JSON.stringify(backup, null, 2));
+});
+
+router.post("/import", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const backup = req.body;
+    if (!backup || typeof backup !== 'object' || !Array.isArray(backup.spaces)) {
+      res.status(400).json({ error: "Invalid backup format", code: "INVALID_BACKUP" });
+      return;
+    }
+    await restoreBackup(backup);
+    res.json({ message: "Backup restored successfully" });
+  } catch (err) {
+    console.error('[admin] Import failed:', err);
+    res.status(500).json({ error: "Import failed", code: "IMPORT_FAILED" });
+  }
+});
 
 export default router;

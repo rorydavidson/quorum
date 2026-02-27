@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Settings,
+  Download,
+  Upload,
 } from 'lucide-react';
 import type { SpaceConfig, SpaceSection } from '@snomed/types';
 
@@ -88,9 +90,8 @@ function sectionToForm(s: SpaceSection): SectionFormData {
 
 function Toast({ message, type }: { message: string; type: 'success' | 'error' }) {
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg text-sm font-medium ${
-      type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
-    }`}>
+    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg text-sm font-medium ${type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
+      }`}>
       {type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
       {message}
     </div>
@@ -296,6 +297,67 @@ export function AdminShell({ initialSpaces }: Props) {
       showToast('Delete failed.', 'error');
     } finally {
       setDeleting(null);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backup & Import
+  // ---------------------------------------------------------------------------
+
+  async function exportSettings() {
+    try {
+      const res = await fetch('/api/admin/backup');
+      if (!res.ok) throw new Error('Export failed');
+      const data = await res.json();
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `snomed-spaces-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('Settings exported successfully.', 'success');
+    } catch {
+      showToast('Export failed.', 'error');
+    }
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('Importing settings will OVERWRITE all existing spaces and sections. Are you sure you want to proceed?')) {
+      e.target.value = '';
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      const res = await fetch('/api/admin/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backup),
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? 'Import failed');
+      }
+
+      await refreshSpaces();
+      showToast('Settings imported successfully.', 'success');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setSaving(false);
+      e.target.value = '';
     }
   }
 
@@ -544,13 +606,38 @@ export function AdminShell({ initialSpaces }: Props) {
           <h2 className="text-base font-semibold text-snomed-grey">Spaces</h2>
           <p className="text-xs text-snomed-grey/50 mt-0.5">{spaces.length} space{spaces.length !== 1 ? 's' : ''} configured</p>
         </div>
-        <button
-          onClick={openCreateSpace}
-          className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors min-h-[44px]"
-        >
-          <Plus size={16} />
-          New Space
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportSettings}
+            className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2.5 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
+            title="Export all settings to JSON"
+          >
+            <Download size={16} />
+            Export
+          </button>
+          <div className="relative">
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleImport}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              title="Import settings from JSON"
+            />
+            <button
+              className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2.5 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
+            >
+              <Upload size={16} />
+              Import
+            </button>
+          </div>
+          <button
+            onClick={openCreateSpace}
+            className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors min-h-[44px]"
+          >
+            <Plus size={16} />
+            New Space
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">

@@ -6,7 +6,10 @@ import {
   type NextFunction,
 } from "express";
 import multer from "multer";
+import fs from "fs";
+import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getSpaces, getSpaceById, getSectionById } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile } from "../services/drive.js";
 
@@ -37,9 +40,15 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/svg+xml",
 ]);
 
-// multer: store upload in memory so we can stream the buffer to Drive
+// multer: store upload on disk to avoid high memory usage for large files
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (_req, file, cb) => {
+      // Use a unique name to avoid collisions in the temp dir
+      cb(null, `quorum-${Date.now()}-${file.originalname}`);
+    },
+  }),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
@@ -89,8 +98,8 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   const accessible = admin
     ? allSpaces
     : allSpaces.filter((s) =>
-        userCanAccessSpace(user.groups, s.keycloakGroup, false),
-      );
+      userCanAccessSpace(user.groups, s.keycloakGroup, false),
+    );
   res.json(accessible);
 });
 
@@ -186,7 +195,7 @@ router.get(
 
 router.get(
   "/:spaceId/:fileId/download",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.session.user!;
     const space = await getSpaceById(String(req.params.spaceId));
 
@@ -226,6 +235,16 @@ router.get(
         "Content-Disposition",
         `${disposition}; filename="${encodeURIComponent(name)}"`,
       );
+
+      // Handle stream errors (e.g. Drive timeout) mid-download
+      stream.on("error", (err) => {
+        console.error("[documents] Proxy stream error:", err);
+        if (!res.headersSent) {
+          res.status(502).json({ error: "Download failed midway", code: "STREAM_ERROR" });
+        }
+        res.end();
+      });
+
       stream.pipe(res);
     } catch (err) {
       console.error("[documents] Download error:", err);
@@ -234,7 +253,7 @@ router.get(
         code: "DRIVE_ERROR",
       });
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -280,7 +299,7 @@ function userCanUpload(
 router.post(
   "/:spaceId/upload",
   uploadSingle,
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.session.user!;
     const space = await getSpaceById(String(req.params.spaceId));
 
@@ -323,20 +342,32 @@ router.post(
     }
 
     try {
+      // Create a read stream from the temp file on disk
+      const stream = fs.createReadStream(file.path);
+
       const driveFile = await uploadFile(
         space.driveFolderId,
         file.originalname,
         file.mimetype,
-        file.buffer,
+        stream,
+        file.size,
       );
+
+      // Clean up the temp file after upload
+      fs.unlink(file.path, (err) => {
+        if (err) console.error("[documents] Failed to delete temp file:", file.path, err);
+      });
+
       res.status(201).json(driveFile);
     } catch (err) {
       console.error("[documents] Upload error:", err);
+      // Best effort cleanup if upload fails
+      fs.unlink(file.path, () => { });
       res
         .status(502)
         .json({ error: "Failed to upload file to Drive", code: "DRIVE_ERROR" });
     }
-  },
+  }),
 );
 
 export default router;

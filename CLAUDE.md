@@ -17,6 +17,20 @@ Primary goal: a clean, professional, **iPadOS-optimised** interface for board me
 
 ---
 
+## Hard Rules
+- Never install a new dependency without asking first
+- Never modify the database schema without showing the migration plan
+- Always produce unit tests wherever applicable
+- Always consider performance and volume impact so the app can scale if necessary
+- Environment variables go in .env.local, never hardcoded
+  (I will find you and I will revert you)
+
+## Patterns
+- Use server components by default, client components only when interactivity is required
+- Error boundaries on every route segment
+- Zod validation on every user input
+- Privacy-first design leaning on other services to hold key private data
+
 ## Tech Stack
 
 | Layer | Technology | Rationale |

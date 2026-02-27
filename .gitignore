@@ -5,7 +5,7 @@
 .vscode/
 
 # Plan files (local planning only)
-*plan.md
+*-plan.md
 
 # Dependencies
 node_modules/

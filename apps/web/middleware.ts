@@ -84,11 +84,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Session valid — pass the user as a REQUEST header so server components can read it
   // via `headers()` from 'next/headers' without making another BFF call.
-  // IMPORTANT: Must use NextResponse.next({ request: { headers } }) — setting headers
-  // on the *response* object sends them to the browser, not to server components.
+  // We Base64 encode it to safely handle Unicode characters in names/emails.
   const requestHeaders = new Headers(request.headers);
   if (userHeader) {
-    requestHeaders.set("x-quorum-user", userHeader);
+    const encodedUser = Buffer.from(userHeader).toString("base64");
+    requestHeaders.set("x-quorum-user", encodedUser);
   }
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
@@ -96,11 +96,13 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 export const config = {
   matcher: [
     /*
-     * Match all paths EXCEPT:
-     *  - _next/static  (static files)
-     *  - _next/image   (image optimisation)
-     *  - favicon.ico, snomed-logo.png (public assets)
+     * Match protected portal routes and API proxies.
+     * We exclude static assets and common public files explicitly.
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|snomed-logo\\.png).*)",
+    "/dashboard/:path*",
+    "/spaces/:path*",
+    "/search/:path*",
+    "/admin/:path*",
+    "/api/:path*",
   ],
 };

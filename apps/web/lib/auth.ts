@@ -11,7 +11,9 @@ export async function getUser(): Promise<SessionUser | null> {
   const raw = headerStore.get('x-quorum-user');
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as SessionUser;
+    // Header is Base64 encoded by middleware to safely handle Unicode
+    const decoded = Buffer.from(raw, 'base64').toString('utf8');
+    return JSON.parse(decoded) as SessionUser;
   } catch {
     return null;
   }

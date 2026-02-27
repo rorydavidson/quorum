@@ -228,4 +228,60 @@ export async function getSectionById(
   return row ? rowToSection(row) : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Backup & Restore
+// ---------------------------------------------------------------------------
+
+export interface SiteBackup {
+  version: number;
+  timestamp: string;
+  spaces: SpaceConfig[];
+}
+
+export async function getBackup(): Promise<SiteBackup> {
+  const spaces = await getSpaces();
+  return {
+    version: 1,
+    timestamp: new Date().toISOString(),
+    spaces,
+  };
+}
+
+export async function restoreBackup(backup: SiteBackup): Promise<void> {
+  await db.transaction(async (trx) => {
+    // 1. Clear existing data
+    await trx('space_sections').delete();
+    await trx('spaces').delete();
+
+    // 2. Insert spaces and sections
+    for (const space of backup.spaces) {
+      const spaceRow: SpaceRow = {
+        id: space.id,
+        name: space.name,
+        description: space.description ?? null,
+        keycloak_group: space.keycloakGroup,
+        drive_folder_id: space.driveFolderId,
+        calendar_id: space.calendarId ?? null,
+        ical_url: space.icalUrl ?? null,
+        hierarchy_category: space.hierarchyCategory,
+        upload_groups: JSON.stringify(space.uploadGroups),
+        sort_order: space.sortOrder,
+      };
+      await trx('spaces').insert(spaceRow);
+
+      for (const section of space.sections) {
+        const sectionRow: SectionRow = {
+          id: section.id,
+          space_id: space.id,
+          name: section.name,
+          description: section.description ?? null,
+          drive_folder_id: section.driveFolderId,
+          sort_order: section.sortOrder,
+        };
+        await trx('space_sections').insert(sectionRow);
+      }
+    }
+  });
+}
+
 export default db;

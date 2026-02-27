@@ -1,4 +1,5 @@
 import { Router, type IRouter } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
   buildAuthParams,
   exchangeCodeForTokens,
@@ -36,40 +37,35 @@ router.get('/login', (req, res) => {
 // Keycloak redirects here with ?code= and ?state=
 // ---------------------------------------------------------------------------
 
-router.get('/callback', async (req, res) => {
-  try {
-    const expectedState = req.session.oauthState;
-    const expectedNonce = req.session.oauthNonce;
-    if (!expectedState || !expectedNonce) {
-      res.status(400).json({ error: 'Missing OAuth state or nonce', code: 'INVALID_STATE' });
+router.get('/callback', asyncHandler(async (req, res) => {
+  const expectedState = req.session.oauthState;
+  const expectedNonce = req.session.oauthNonce;
+  if (!expectedState || !expectedNonce) {
+    res.status(400).json({ error: 'Missing OAuth state or nonce', code: 'INVALID_STATE' });
+    return;
+  }
+
+  // Build full callback URL from the request
+  const callbackUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+
+  const tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
+  const user = parseIdToken(tokenSet);
+
+  // Store user and refresh token in session; clear OAuth state
+  req.session.user = user;
+  req.session.refreshToken = tokenSet.refresh_token ?? '';
+  delete req.session.oauthState;
+  delete req.session.oauthNonce;
+
+  req.session.save((err) => {
+    if (err) {
+      console.error('[auth] Failed to save session after callback', err);
+      res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
       return;
     }
-
-    // Build full callback URL from the request
-    const callbackUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-
-    const tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
-    const user = parseIdToken(tokenSet);
-
-    // Store user and refresh token in session; clear OAuth state
-    req.session.user = user;
-    req.session.refreshToken = tokenSet.refresh_token ?? '';
-    delete req.session.oauthState;
-    delete req.session.oauthNonce;
-
-    req.session.save((err) => {
-      if (err) {
-        console.error('[auth] Failed to save session after callback', err);
-        res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
-        return;
-      }
-      res.redirect(`${FRONTEND_ORIGIN}/dashboard`);
-    });
-  } catch (err) {
-    console.error('[auth] Callback error:', err);
-    res.status(500).json({ error: 'Authentication failed', code: 'AUTH_ERROR' });
-  }
-});
+    res.redirect(`${FRONTEND_ORIGIN}/dashboard`);
+  });
+}));
 
 // ---------------------------------------------------------------------------
 // GET /auth/logout
@@ -105,30 +101,23 @@ router.get('/session', (req, res) => {
 // POST /auth/refresh  (optional — called if access token expiry matters)
 // ---------------------------------------------------------------------------
 
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', asyncHandler(async (req, res) => {
   if (!req.session.user || !req.session.refreshToken) {
     res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHENTICATED' });
     return;
   }
-  try {
-    const tokenSet = await refreshTokens(req.session.refreshToken);
-    const user = parseIdToken(tokenSet);
-    req.session.user = user;
-    req.session.refreshToken = tokenSet.refresh_token ?? req.session.refreshToken;
-    req.session.save((err) => {
-      if (err) {
-        res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
-        return;
-      }
-      res.json({ user: req.session.user });
-    });
-  } catch (err) {
-    console.error('[auth] Refresh error:', err);
-    // Refresh token expired — force re-login
-    req.session.destroy(() => {
-      res.status(401).json({ error: 'Session expired', code: 'SESSION_EXPIRED' });
-    });
-  }
-});
+
+  const tokenSet = await refreshTokens(req.session.refreshToken);
+  const user = parseIdToken(tokenSet);
+  req.session.user = user;
+  req.session.refreshToken = tokenSet.refresh_token ?? req.session.refreshToken;
+  req.session.save((err) => {
+    if (err) {
+      res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
+      return;
+    }
+    res.json({ user: req.session.user });
+  });
+}));
 
 export default router;

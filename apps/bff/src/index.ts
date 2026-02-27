@@ -22,7 +22,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   console.error(
     "[startup] FATAL: SESSION_SECRET is not set. " +
-      "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
+    "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
   );
   process.exit(1);
 }
@@ -85,6 +85,19 @@ app.use("/documents", documentsRouter);
 app.use("/admin", adminRouter);
 app.use("/calendar", calendarRouter);
 app.use("/search", searchRouter);
+
+// ---------------------------------------------------------------------------
+// Global Error Handler
+// ---------------------------------------------------------------------------
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[BFF Error]", err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: err.message || "Internal Server Error",
+    code: err.code || "INTERNAL_ERROR",
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 404 fallback

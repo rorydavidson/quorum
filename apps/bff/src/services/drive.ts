@@ -265,21 +265,25 @@ export async function uploadFile(
   folderId: string,
   filename: string,
   mimeType: string,
-  buffer: Buffer,
+  body: Readable | Buffer,
+  size?: number,
 ): Promise<DriveFile> {
   if (isMockMode()) {
+    const fileSize = size !== undefined
+      ? size
+      : (body instanceof Buffer ? body.length : 0);
     return {
       id: `mock-upload-${Date.now()}`,
       name: filename,
       mimeType,
-      size: Math.round((buffer.length / 1024 / 1024) * 100) / 100,
+      size: Math.round((fileSize / 1024 / 1024) * 100) / 100,
       createdTime: new Date().toISOString(),
       modifiedTime: new Date().toISOString(),
       isOfficialRecord: false,
     };
   }
 
-  const stream = Readable.from(buffer);
+  const stream = body instanceof Buffer ? Readable.from(body) : body;
 
   const res = await drive().files.create({
     supportsAllDrives: true,
