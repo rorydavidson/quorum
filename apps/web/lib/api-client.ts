@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -150,6 +150,25 @@ export async function getEventDetails(
 ): Promise<{ event: CalendarEvent; metadata: EventMetadata }> {
   return bffFetch<{ event: CalendarEvent; metadata: EventMetadata }>(
     `/calendar/${spaceId}/${eventId}`,
+    { cookie, cache: 'no-store' }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forum (Discourse)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch recent Discourse topics for a single space.
+ * Returns an empty array if the space has no discourseCategorySlug configured.
+ */
+export async function getSpaceForumTopics(
+  spaceId: string,
+  cookie: string,
+  limit = 5,
+): Promise<DiscoursePost[]> {
+  return bffFetch<DiscoursePost[]>(
+    `/forum?spaceId=${encodeURIComponent(spaceId)}&limit=${limit}`,
     { cookie, cache: 'no-store' }
   );
 }

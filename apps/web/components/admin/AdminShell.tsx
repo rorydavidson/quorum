@@ -34,6 +34,7 @@ interface SpaceFormData {
   driveFolderId: string;
   calendarId: string;
   icalUrl: string;
+  discourseCategorySlug: string;
   hierarchyCategory: string;
   uploadGroups: string; // comma-separated
   sortOrder: string;
@@ -49,7 +50,7 @@ interface SectionFormData {
 
 const EMPTY_SPACE_FORM: SpaceFormData = {
   id: '', name: '', description: '', keycloakGroup: '', driveFolderId: '',
-  calendarId: '', icalUrl: '', hierarchyCategory: '', uploadGroups: '', sortOrder: '0',
+  calendarId: '', icalUrl: '', discourseCategorySlug: '', hierarchyCategory: '', uploadGroups: '', sortOrder: '0',
 };
 
 const EMPTY_SECTION_FORM: SectionFormData = {
@@ -69,6 +70,7 @@ function spaceToForm(s: SpaceConfig): SpaceFormData {
     driveFolderId: s.driveFolderId,
     calendarId: s.calendarId ?? '',
     icalUrl: s.icalUrl ?? '',
+    discourseCategorySlug: s.discourseCategorySlug ?? '',
     hierarchyCategory: s.hierarchyCategory,
     uploadGroups: s.uploadGroups.join(', '),
     sortOrder: String(s.sortOrder),
@@ -200,6 +202,7 @@ export function AdminShell({ initialSpaces }: Props) {
         driveFolderId: spaceForm.driveFolderId.trim(),
         calendarId: spaceForm.calendarId.trim() || undefined,
         icalUrl: spaceForm.icalUrl.trim() || undefined,
+        discourseCategorySlug: spaceForm.discourseCategorySlug.trim() || undefined,
         hierarchyCategory: spaceForm.hierarchyCategory.trim(),
         uploadGroups: spaceForm.uploadGroups.split(',').map((g) => g.trim()).filter(Boolean),
         sortOrder: parseInt(spaceForm.sortOrder, 10) || 0,
@@ -484,6 +487,18 @@ export function AdminShell({ initialSpaces }: Props) {
               value={spaceForm.icalUrl}
               onChange={(e) => setSpaceForm({ ...spaceForm, icalUrl: e.target.value })}
               placeholder="https://calendar.google.com/calendar/ical/…/public/basic.ics"
+            />
+          </FormField>
+
+          <FormField
+            label="Discourse Category Slug"
+            hint="Optional — Discourse forum category slug (e.g. board-members). Topics from this category will appear on the space overview."
+          >
+            <input
+              className={inputCls}
+              value={spaceForm.discourseCategorySlug}
+              onChange={(e) => setSpaceForm({ ...spaceForm, discourseCategorySlug: e.target.value })}
+              placeholder="board-members"
             />
           </FormField>
 

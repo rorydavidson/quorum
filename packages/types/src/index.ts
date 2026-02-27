@@ -22,14 +22,15 @@ export interface SpaceConfig {
   id: string;
   name: string;
   description?: string;
-  keycloakGroup: string;       // e.g. "/board-members"
-  driveFolderId: string;       // Google Drive folder ID (default / legacy section)
-  calendarId?: string;         // Google Calendar ID — used with SA credentials or public calendars
-  icalUrl?: string;            // Direct iCal/ICS feed URL — works without any Google auth
-  hierarchyCategory: string;   // e.g. "Board Level", "Working Groups"
-  uploadGroups: string[];      // Keycloak groups allowed to upload
+  keycloakGroup: string;            // e.g. "/board-members"
+  driveFolderId: string;            // Google Drive folder ID (default / legacy section)
+  calendarId?: string;              // Google Calendar ID — used with SA credentials or public calendars
+  icalUrl?: string;                 // Direct iCal/ICS feed URL — works without any Google auth
+  discourseCategorySlug?: string;   // Discourse forum category slug — topics appear on space overview
+  hierarchyCategory: string;        // e.g. "Board Level", "Working Groups"
+  uploadGroups: string[];           // Keycloak groups allowed to upload
   sortOrder: number;
-  sections: SpaceSection[];    // Named document sub-sections (may be empty)
+  sections: SpaceSection[];         // Named document sub-sections (may be empty)
 }
 
 // Document listing entry — from Google Drive
@@ -69,6 +70,19 @@ export interface ApiError {
   code: string;
 }
 
+// Discourse forum topic — from forums.snomed.org public API
+export interface DiscoursePost {
+  id: number;
+  title: string;
+  slug: string;
+  postsCount: number;
+  replyCount: number;
+  views: number;
+  createdAt: string;      // ISO 8601
+  lastPostedAt: string;   // ISO 8601
+  url: string;            // https://forums.snomed.org/t/{slug}/{id}
+}
+
 // Admin: create/update space config payload
 export interface UpsertSpacePayload {
   name: string;
@@ -77,6 +91,7 @@ export interface UpsertSpacePayload {
   driveFolderId: string;
   calendarId?: string;
   icalUrl?: string;
+  discourseCategorySlug?: string;
   hierarchyCategory: string;
   uploadGroups: string[];
   sortOrder: number;

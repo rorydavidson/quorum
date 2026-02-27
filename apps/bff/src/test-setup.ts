@@ -18,3 +18,6 @@ process.env.NODE_ENV = 'test';
 
 // Never trigger the DEV_AUTH_BYPASS by default — individual tests can override.
 delete process.env.DEV_AUTH_BYPASS;
+
+// Prevent discourse.ts from hitting the real Discourse network during tests.
+process.env.DISCOURSE_MOCK = 'true';

@@ -11,9 +11,10 @@ import {
   Video,
   ArrowRight,
 } from 'lucide-react';
-import { getSpaceFiles, getSpaceEvents } from '@/lib/api-client';
+import { getSpaceFiles, getSpaceEvents, getSpaceForumTopics } from '@/lib/api-client';
 import type { SpaceWithFiles } from '@/lib/api-client';
-import type { CalendarEvent, DriveFile, SpaceSection } from '@snomed/types';
+import type { CalendarEvent, DiscoursePost, DriveFile, SpaceSection } from '@snomed/types';
+import { ForumWidget } from '@/components/forum/ForumWidget';
 
 interface Props {
   params: Promise<{ spaceId: string }>;
@@ -140,10 +141,12 @@ export default async function SpaceLandingPage({ params }: Props) {
   let data: SpaceWithFiles | null = null;
   let error: string | null = null;
   let upcomingEvents: CalendarEvent[] = [];
+  let forumTopics: DiscoursePost[] = [];
 
-  const [spaceResult, eventsResult] = await Promise.allSettled([
+  const [spaceResult, eventsResult, forumResult] = await Promise.allSettled([
     getSpaceFiles(spaceId, cookie),
     getSpaceEvents(spaceId, cookie, 5, 90),
+    getSpaceForumTopics(spaceId, cookie, 5),
   ]);
 
   if (spaceResult.status === 'fulfilled') {
@@ -154,6 +157,10 @@ export default async function SpaceLandingPage({ params }: Props) {
 
   if (eventsResult.status === 'fulfilled') {
     upcomingEvents = eventsResult.value;
+  }
+
+  if (forumResult.status === 'fulfilled') {
+    forumTopics = forumResult.value;
   }
 
   const space = data?.space;
@@ -289,6 +296,17 @@ export default async function SpaceLandingPage({ params }: Props) {
           </div>
         </section>
       </div>
+
+      {/* Discourse forum widget — only rendered when a category slug is configured */}
+      {space?.discourseCategorySlug && (
+        <div className="mt-6">
+          <ForumWidget
+            topics={forumTopics}
+            categorySlug={space.discourseCategorySlug}
+            spaceName={space.name}
+          />
+        </div>
+      )}
     </div>
   );
 }

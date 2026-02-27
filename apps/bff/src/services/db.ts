@@ -44,6 +44,15 @@ export async function runMigrations(): Promise<void> {
     console.log('[db] Added ical_url column to spaces table');
   }
 
+  // Idempotent column migration: add discourse_category_slug if it doesn't exist
+  const hasDiscourseSlug = await db.schema.hasColumn('spaces', 'discourse_category_slug');
+  if (!hasDiscourseSlug) {
+    await db.schema.alterTable('spaces', (t) => {
+      t.string('discourse_category_slug').nullable();
+    });
+    console.log('[db] Added discourse_category_slug column to spaces table');
+  }
+
   const hasSections = await db.schema.hasTable('space_sections');
   if (!hasSections) {
     await db.schema.createTable('space_sections', (t) => {
@@ -97,6 +106,7 @@ interface SpaceRow {
   drive_folder_id: string;
   calendar_id: string | null;
   ical_url: string | null;
+  discourse_category_slug: string | null;
   hierarchy_category: string;
   upload_groups: string; // JSON
   sort_order: number;
@@ -130,6 +140,7 @@ function rowToSpace(row: SpaceRow, sections: SpaceSection[] = []): SpaceConfig {
     driveFolderId: row.drive_folder_id,
     calendarId: row.calendar_id ?? undefined,
     icalUrl: row.ical_url ?? undefined,
+    discourseCategorySlug: row.discourse_category_slug ?? undefined,
     hierarchyCategory: row.hierarchy_category,
     uploadGroups: JSON.parse(row.upload_groups) as string[],
     sortOrder: row.sort_order,
@@ -192,6 +203,7 @@ export async function upsertSpace(
     drive_folder_id: payload.driveFolderId,
     calendar_id: payload.calendarId ?? null,
     ical_url: payload.icalUrl ?? null,
+    discourse_category_slug: payload.discourseCategorySlug ?? null,
     hierarchy_category: payload.hierarchyCategory,
     upload_groups: JSON.stringify(payload.uploadGroups),
     sort_order: payload.sortOrder,
@@ -345,6 +357,7 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         drive_folder_id: space.driveFolderId,
         calendar_id: space.calendarId ?? null,
         ical_url: space.icalUrl ?? null,
+        discourse_category_slug: space.discourseCategorySlug ?? null,
         hierarchy_category: space.hierarchyCategory,
         upload_groups: JSON.stringify(space.uploadGroups),
         sort_order: space.sortOrder,
