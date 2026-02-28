@@ -295,6 +295,12 @@ FRONTEND_ORIGIN=http://localhost:3000
 # Discourse forum base URL (override per environment if using a staging forum)
 DISCOURSE_URL=https://forums.snomed.org
 # DISCOURSE_MOCK=true   # uncomment to use hardcoded mock data (set automatically in tests)
+
+# Discourse API credentials — only required for private/restricted categories.
+# Leave unset for fully public forums (no auth needed).
+# Setup: Discourse Admin → API → New API Key; add DISCOURSE_API_USERNAME to all private groups.
+# DISCOURSE_API_KEY=<discourse-api-key>
+# DISCOURSE_API_USERNAME=quorum-system
 ```
 
 ### `apps/web/.env.local`

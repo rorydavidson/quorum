@@ -1,11 +1,36 @@
-import type { DiscoursePost } from '@snomed/types';
+import type { DiscoursePost } from "@snomed/types";
 
 // ---------------------------------------------------------------------------
-// Discourse public API client
-// Forums at https://forums.snomed.org are publicly readable — no auth required.
+// Discourse API client
+//
+// Supports both public and private Discourse categories.
+//
+// For public forums (no auth required), no additional configuration is needed.
+//
+// For private/restricted categories, set the following in apps/bff/.env.local:
+//   DISCOURSE_API_KEY      — API key created in Discourse Admin → API
+//   DISCOURSE_API_USERNAME — the Discourse user the key belongs to
+//                            (must be a member of any private groups you need)
+//
+// When these vars are set, all requests include Api-Key / Api-Username headers,
+// giving the BFF read access to restricted categories. The credentials are held
+// server-side only and never reach the browser.
 // ---------------------------------------------------------------------------
 
-const DISCOURSE_BASE = process.env.DISCOURSE_URL ?? 'https://forums.snomed.org';
+const DISCOURSE_BASE = process.env.DISCOURSE_URL ?? "https://forums.snomed.org";
+
+/**
+ * Returns Discourse API auth headers when credentials are configured.
+ * Returns an empty object when running against a fully public forum.
+ */
+function discourseAuthHeaders(): Record<string, string> {
+  const key = process.env.DISCOURSE_API_KEY;
+  const username = process.env.DISCOURSE_API_USERNAME;
+  if (key && username) {
+    return { "Api-Key": key, "Api-Username": username };
+  }
+  return {};
+}
 
 /**
  * Returns true when mock mode should be used.
@@ -13,7 +38,7 @@ const DISCOURSE_BASE = process.env.DISCOURSE_URL ?? 'https://forums.snomed.org';
  * setup so tests never hit the real network).
  */
 function isMockMode(): boolean {
-  return process.env.DISCOURSE_MOCK === 'true';
+  return process.env.DISCOURSE_MOCK === "true";
 }
 
 // ---------------------------------------------------------------------------
@@ -23,35 +48,35 @@ function isMockMode(): boolean {
 const MOCK_POSTS: DiscoursePost[] = [
   {
     id: 101,
-    title: 'SNOMED CT Release Schedule 2025 — Discussion',
-    slug: 'snomed-ct-release-schedule-2025-discussion',
+    title: "SNOMED CT Release Schedule 2025 — Discussion",
+    slug: "snomed-ct-release-schedule-2025-discussion",
     postsCount: 12,
     replyCount: 9,
     views: 348,
-    createdAt: '2025-01-15T09:00:00.000Z',
-    lastPostedAt: '2025-02-10T14:22:00.000Z',
+    createdAt: "2025-01-15T09:00:00.000Z",
+    lastPostedAt: "2025-02-10T14:22:00.000Z",
     url: `${DISCOURSE_BASE}/t/snomed-ct-release-schedule-2025-discussion/101`,
   },
   {
     id: 102,
-    title: 'Governance Review — Proposed Changes to Voting Procedures',
-    slug: 'governance-review-proposed-changes-to-voting-procedures',
+    title: "Governance Review — Proposed Changes to Voting Procedures",
+    slug: "governance-review-proposed-changes-to-voting-procedures",
     postsCount: 7,
     replyCount: 5,
     views: 210,
-    createdAt: '2025-02-01T11:30:00.000Z',
-    lastPostedAt: '2025-02-20T08:45:00.000Z',
+    createdAt: "2025-02-01T11:30:00.000Z",
+    lastPostedAt: "2025-02-20T08:45:00.000Z",
     url: `${DISCOURSE_BASE}/t/governance-review-proposed-changes-to-voting-procedures/102`,
   },
   {
     id: 103,
-    title: 'Welcome to the Board Members Forum',
-    slug: 'welcome-to-the-board-members-forum',
+    title: "Welcome to the Board Members Forum",
+    slug: "welcome-to-the-board-members-forum",
     postsCount: 3,
     replyCount: 1,
     views: 512,
-    createdAt: '2024-12-01T08:00:00.000Z',
-    lastPostedAt: '2024-12-05T10:15:00.000Z',
+    createdAt: "2024-12-01T08:00:00.000Z",
+    lastPostedAt: "2024-12-05T10:15:00.000Z",
     url: `${DISCOURSE_BASE}/t/welcome-to-the-board-members-forum/103`,
   },
 ];
@@ -107,22 +132,28 @@ export async function getDiscourseTopics(
   try {
     const res = await fetch(url, {
       headers: {
-        // Discourse expects a valid User-Agent; browsers set this automatically
-        'User-Agent': 'Quorum-Portal/1.0 (SNOMED International governance portal)',
-        'Accept': 'application/json',
+        "User-Agent":
+          "Quorum-Portal/1.0 (SNOMED International governance portal)",
+        Accept: "application/json",
+        // Auth headers are included when DISCOURSE_API_KEY / DISCOURSE_API_USERNAME
+        // are set — required for private/restricted categories.
+        ...discourseAuthHeaders(),
       },
-      // Upstream is a public API — cache for 2 minutes to avoid hammering it
-      // (Next.js fetch cache semantics don't apply here; this is Node fetch)
     });
 
     if (!res.ok) {
-      console.warn(`[discourse] API returned ${res.status} for category "${categorySlug}"`);
+      console.warn(
+        `[discourse] API returned ${res.status} for category "${categorySlug}"`,
+      );
       return [];
     }
 
-    raw = await res.json() as DiscourseLatestResponse;
+    raw = (await res.json()) as DiscourseLatestResponse;
   } catch (err) {
-    console.warn(`[discourse] Failed to fetch topics for category "${categorySlug}":`, err);
+    console.warn(
+      `[discourse] Failed to fetch topics for category "${categorySlug}":`,
+      err,
+    );
     return [];
   }
 

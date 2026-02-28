@@ -45,7 +45,7 @@ BFF / Backend-for-Frontend (port 3001)
       ├──► Keycloak — OIDC auth
       ├──► Google Drive API — list, search & stream documents; upload
       ├──► Google Calendar API / iCal — upcoming meetings
-      ├──► Discourse public API — recent forum topics per space (no auth required)
+      ├──► Discourse API — recent forum topics per space (public or private categories)
       └──► SQLite / PostgreSQL — configuration & audit trail
 ```
 
@@ -336,6 +336,19 @@ FRONTEND_ORIGIN=http://localhost:3000
 # Base URL of the Discourse forum. Override per environment (e.g. staging forum).
 DISCOURSE_URL=https://forums.snomed.org
 # DISCOURSE_MOCK=true   # Uncomment to return mock topics without hitting the API
+
+# Discourse API credentials — required only for private/restricted categories.
+# Leave both unset if your forum categories are fully public.
+#
+# Setup (one-time, in Discourse admin):
+#   1. Create a system user (e.g. "quorum-system") and add it to every private group
+#      whose categories should be surfaced in the portal (trust level ≥ 1 required).
+#   2. Admin → API → New API Key → User Level: Single User → User: quorum-system
+#      → Scope: Global (or Topics → Read at minimum). Copy the key — shown only once.
+#   3. Ensure the private category's Security tab grants "See" permission to that group.
+#
+# DISCOURSE_API_KEY=<paste key from step 2>
+# DISCOURSE_API_USERNAME=quorum-system   # must match the Discourse username exactly (case-sensitive)
 ```
 
 ### `apps/web/.env.local`
@@ -383,6 +396,8 @@ Log in with a Keycloak account in the `portal_admin` group, then navigate to `/a
 A **Space** represents a governance group (e.g. "Management Board"). Each space maps a Keycloak group to a Google Drive folder. **Sections** subdivide documents into categories like "Agendas" or "Papers".
 
 Each space can optionally be linked to a **Discourse category** by entering the category slug (e.g. `board-members`) in the admin form. When set, recent topics from that category appear as a widget on the space overview page, linking out to `forums.snomed.org`.
+
+**Private Discourse categories:** If the category is restricted to a group, the BFF must be given API credentials. See the `DISCOURSE_API_KEY` / `DISCOURSE_API_USERNAME` variables in the environment variables section above. The system user behind those credentials must be a member of the relevant Discourse group.
 
 ### Audit Logs
 The **Audit Log** tab provides a real-time feed of all modifications:
