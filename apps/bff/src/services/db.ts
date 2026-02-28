@@ -1,96 +1,127 @@
-import Knex from 'knex';
-import { SpaceConfig, SpaceSection, EventMetadata, AuditLog } from '@snomed/types';
+import Knex from "knex";
+import {
+  SpaceConfig,
+  SpaceSection,
+  EventMetadata,
+  AuditLog,
+} from "@snomed/types";
 
 // ---------------------------------------------------------------------------
-// Knex instance
+// Knex instance — dynamic client selection
+//
+// PostgreSQL: DATABASE_URL starts with postgresql:// or postgres://
+// SQLite:     anything else (default: file:./dev.db)
 // ---------------------------------------------------------------------------
 
-const db = Knex({
-  client: 'better-sqlite3',
-  connection: {
-    filename: process.env.DATABASE_URL?.replace('file:', '') ?? './dev.db',
-  },
-  useNullAsDefault: true,
-});
+const databaseUrl = process.env.DATABASE_URL ?? "file:./dev.db";
+
+export const isPostgresDb =
+  databaseUrl.startsWith("postgresql://") ||
+  databaseUrl.startsWith("postgres://");
+
+const db = isPostgresDb
+  ? Knex({
+      client: "pg",
+      connection: databaseUrl,
+      pool: { min: 2, max: 10 },
+    })
+  : Knex({
+      client: "better-sqlite3",
+      connection: {
+        filename: databaseUrl.replace(/^file:/, "") || "./dev.db",
+      },
+      useNullAsDefault: true,
+    });
 
 // ---------------------------------------------------------------------------
 // Schema migration — runs at startup, idempotent
 // ---------------------------------------------------------------------------
 
 export async function runMigrations(): Promise<void> {
-  const hasSpaces = await db.schema.hasTable('spaces');
+  const hasSpaces = await db.schema.hasTable("spaces");
   if (!hasSpaces) {
-    await db.schema.createTable('spaces', (t) => {
-      t.string('id').primary();
-      t.string('name').notNullable();
-      t.text('description').nullable();
-      t.string('keycloak_group').notNullable();
-      t.string('drive_folder_id').notNullable();
-      t.string('calendar_id').nullable();
-      t.string('ical_url').nullable();
-      t.string('hierarchy_category').notNullable().defaultTo('General');
-      t.text('upload_groups').notNullable().defaultTo('[]'); // JSON array
-      t.integer('sort_order').notNullable().defaultTo(0);
+    await db.schema.createTable("spaces", (t) => {
+      t.string("id").primary();
+      t.string("name").notNullable();
+      t.text("description").nullable();
+      t.string("keycloak_group").notNullable();
+      t.string("drive_folder_id").notNullable();
+      t.string("calendar_id").nullable();
+      t.string("ical_url").nullable();
+      t.string("hierarchy_category").notNullable().defaultTo("General");
+      t.text("upload_groups").notNullable().defaultTo("[]"); // JSON array
+      t.integer("sort_order").notNullable().defaultTo(0);
     });
-    console.log('[db] Created spaces table');
+    console.log("[db] Created spaces table");
   }
 
   // Idempotent column migration: add ical_url if it doesn't exist (existing DBs)
-  const hasIcalUrl = await db.schema.hasColumn('spaces', 'ical_url');
+  const hasIcalUrl = await db.schema.hasColumn("spaces", "ical_url");
   if (!hasIcalUrl) {
-    await db.schema.alterTable('spaces', (t) => {
-      t.string('ical_url').nullable();
+    await db.schema.alterTable("spaces", (t) => {
+      t.string("ical_url").nullable();
     });
-    console.log('[db] Added ical_url column to spaces table');
+    console.log("[db] Added ical_url column to spaces table");
   }
 
   // Idempotent column migration: add discourse_category_slug if it doesn't exist
-  const hasDiscourseSlug = await db.schema.hasColumn('spaces', 'discourse_category_slug');
+  const hasDiscourseSlug = await db.schema.hasColumn(
+    "spaces",
+    "discourse_category_slug",
+  );
   if (!hasDiscourseSlug) {
-    await db.schema.alterTable('spaces', (t) => {
-      t.string('discourse_category_slug').nullable();
+    await db.schema.alterTable("spaces", (t) => {
+      t.string("discourse_category_slug").nullable();
     });
-    console.log('[db] Added discourse_category_slug column to spaces table');
+    console.log("[db] Added discourse_category_slug column to spaces table");
   }
 
-  const hasSections = await db.schema.hasTable('space_sections');
+  const hasSections = await db.schema.hasTable("space_sections");
   if (!hasSections) {
-    await db.schema.createTable('space_sections', (t) => {
-      t.string('id').notNullable();
-      t.string('space_id').notNullable().references('id').inTable('spaces').onDelete('CASCADE');
-      t.string('name').notNullable();
-      t.text('description').nullable();
-      t.string('drive_folder_id').notNullable();
-      t.integer('sort_order').notNullable().defaultTo(0);
-      t.primary(['id', 'space_id']);
+    await db.schema.createTable("space_sections", (t) => {
+      t.string("id").notNullable();
+      t.string("space_id")
+        .notNullable()
+        .references("id")
+        .inTable("spaces")
+        .onDelete("CASCADE");
+      t.string("name").notNullable();
+      t.text("description").nullable();
+      t.string("drive_folder_id").notNullable();
+      t.integer("sort_order").notNullable().defaultTo(0);
+      t.primary(["id", "space_id"]);
     });
-    console.log('[db] Created space_sections table');
+    console.log("[db] Created space_sections table");
   }
 
-  const hasEventMetadata = await db.schema.hasTable('event_metadata');
+  const hasEventMetadata = await db.schema.hasTable("event_metadata");
   if (!hasEventMetadata) {
-    await db.schema.createTable('event_metadata', (t) => {
-      t.string('id').primary(); // event_id
-      t.string('space_id').notNullable().references('id').inTable('spaces').onDelete('CASCADE');
-      t.string('google_doc_url').nullable();
-      t.text('agenda_items').notNullable().defaultTo('[]'); // JSON
+    await db.schema.createTable("event_metadata", (t) => {
+      t.string("id").primary(); // event_id
+      t.string("space_id")
+        .notNullable()
+        .references("id")
+        .inTable("spaces")
+        .onDelete("CASCADE");
+      t.string("google_doc_url").nullable();
+      t.text("agenda_items").notNullable().defaultTo("[]"); // JSON
     });
-    console.log('[db] Created event_metadata table');
+    console.log("[db] Created event_metadata table");
   }
 
-  const hasAuditLogs = await db.schema.hasTable('audit_logs');
+  const hasAuditLogs = await db.schema.hasTable("audit_logs");
   if (!hasAuditLogs) {
-    await db.schema.createTable('audit_logs', (t) => {
-      t.increments('id').primary();
-      t.timestamp('timestamp').notNullable().defaultTo(db.fn.now());
-      t.string('user_id').notNullable();
-      t.string('user_name').notNullable();
-      t.string('action').notNullable();
-      t.string('entity_type').notNullable();
-      t.string('entity_id').notNullable();
-      t.text('details').nullable(); // JSON
+    await db.schema.createTable("audit_logs", (t) => {
+      t.increments("id").primary();
+      t.timestamp("timestamp").notNullable().defaultTo(db.fn.now());
+      t.string("user_id").notNullable();
+      t.string("user_name").notNullable();
+      t.string("action").notNullable();
+      t.string("entity_type").notNullable();
+      t.string("entity_id").notNullable();
+      t.text("details").nullable(); // JSON
     });
-    console.log('[db] Created audit_logs table');
+    console.log("[db] Created audit_logs table");
   }
 }
 
@@ -153,8 +184,11 @@ function rowToSpace(row: SpaceRow, sections: SpaceSection[] = []): SpaceConfig {
 // ---------------------------------------------------------------------------
 
 export async function getSpaces(): Promise<SpaceConfig[]> {
-  const rows = await db<SpaceRow>('spaces').orderBy('sort_order').orderBy('name');
-  const sectionRows = await db<SectionRow>('space_sections').orderBy('sort_order');
+  const rows = await db<SpaceRow>("spaces")
+    .orderBy("sort_order")
+    .orderBy("name");
+  const sectionRows =
+    await db<SectionRow>("space_sections").orderBy("sort_order");
   const sectionsBySpace: Record<string, SpaceSection[]> = {};
   for (const s of sectionRows) {
     if (!sectionsBySpace[s.space_id]) sectionsBySpace[s.space_id] = [];
@@ -163,25 +197,31 @@ export async function getSpaces(): Promise<SpaceConfig[]> {
   return rows.map((r) => rowToSpace(r, sectionsBySpace[r.id] ?? []));
 }
 
-export async function getSpaceById(id: string): Promise<SpaceConfig | undefined> {
-  const row = await db<SpaceRow>('spaces').where({ id }).first();
+export async function getSpaceById(
+  id: string,
+): Promise<SpaceConfig | undefined> {
+  const row = await db<SpaceRow>("spaces").where({ id }).first();
   if (!row) return undefined;
-  const sectionRows = await db<SectionRow>('space_sections')
+  const sectionRows = await db<SectionRow>("space_sections")
     .where({ space_id: id })
-    .orderBy('sort_order');
+    .orderBy("sort_order");
   return rowToSpace(row, sectionRows.map(rowToSection));
 }
 
 /** Returns only the spaces whose keycloak_group is in the provided groups array. */
-export async function getSpacesByGroups(groups: string[]): Promise<SpaceConfig[]> {
+export async function getSpacesByGroups(
+  groups: string[],
+): Promise<SpaceConfig[]> {
   if (groups.length === 0) return [];
-  const rows = await db<SpaceRow>('spaces')
-    .whereIn('keycloak_group', groups)
-    .orderBy('sort_order')
-    .orderBy('name');
+  const rows = await db<SpaceRow>("spaces")
+    .whereIn("keycloak_group", groups)
+    .orderBy("sort_order")
+    .orderBy("name");
   const ids = rows.map((r) => r.id);
   const sectionRows = ids.length
-    ? await db<SectionRow>('space_sections').whereIn('space_id', ids).orderBy('sort_order')
+    ? await db<SectionRow>("space_sections")
+        .whereIn("space_id", ids)
+        .orderBy("sort_order")
     : [];
   const sectionsBySpace: Record<string, SpaceSection[]> = {};
   for (const s of sectionRows) {
@@ -193,7 +233,7 @@ export async function getSpacesByGroups(groups: string[]): Promise<SpaceConfig[]
 
 export async function upsertSpace(
   id: string,
-  payload: Omit<SpaceConfig, 'id' | 'sections'>
+  payload: Omit<SpaceConfig, "id" | "sections">,
 ): Promise<SpaceConfig> {
   const row: SpaceRow = {
     id,
@@ -209,18 +249,18 @@ export async function upsertSpace(
     sort_order: payload.sortOrder,
   };
 
-  const existing = await db<SpaceRow>('spaces').where({ id }).first();
+  const existing = await db<SpaceRow>("spaces").where({ id }).first();
   if (existing) {
-    await db<SpaceRow>('spaces').where({ id }).update(row);
+    await db<SpaceRow>("spaces").where({ id }).update(row);
   } else {
-    await db<SpaceRow>('spaces').insert(row);
+    await db<SpaceRow>("spaces").insert(row);
   }
 
   return rowToSpace(row, []);
 }
 
 export async function deleteSpace(id: string): Promise<void> {
-  await db<SpaceRow>('spaces').where({ id }).delete();
+  await db<SpaceRow>("spaces").where({ id }).delete();
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +270,7 @@ export async function deleteSpace(id: string): Promise<void> {
 export async function upsertSection(
   spaceId: string,
   sectionId: string,
-  payload: Omit<SpaceSection, 'id'>
+  payload: Omit<SpaceSection, "id">,
 ): Promise<SpaceSection> {
   const row: SectionRow = {
     id: sectionId,
@@ -241,26 +281,33 @@ export async function upsertSection(
     sort_order: payload.sortOrder,
   };
 
-  const existing = await db<SectionRow>('space_sections')
+  const existing = await db<SectionRow>("space_sections")
     .where({ id: sectionId, space_id: spaceId })
     .first();
   if (existing) {
-    await db<SectionRow>('space_sections').where({ id: sectionId, space_id: spaceId }).update(row);
+    await db<SectionRow>("space_sections")
+      .where({ id: sectionId, space_id: spaceId })
+      .update(row);
   } else {
-    await db<SectionRow>('space_sections').insert(row);
+    await db<SectionRow>("space_sections").insert(row);
   }
   return rowToSection(row);
 }
 
-export async function deleteSection(spaceId: string, sectionId: string): Promise<void> {
-  await db<SectionRow>('space_sections').where({ id: sectionId, space_id: spaceId }).delete();
+export async function deleteSection(
+  spaceId: string,
+  sectionId: string,
+): Promise<void> {
+  await db<SectionRow>("space_sections")
+    .where({ id: sectionId, space_id: spaceId })
+    .delete();
 }
 
 export async function getSectionById(
   spaceId: string,
-  sectionId: string
+  sectionId: string,
 ): Promise<SpaceSection | undefined> {
-  const row = await db<SectionRow>('space_sections')
+  const row = await db<SectionRow>("space_sections")
     .where({ id: sectionId, space_id: spaceId })
     .first();
   return row ? rowToSection(row) : undefined;
@@ -286,17 +333,23 @@ function rowToEventMetadata(row: EventMetadataRow): EventMetadata {
   };
 }
 
-export async function getEventMetadata(id: string): Promise<EventMetadata | undefined> {
-  const row = await db<EventMetadataRow>('event_metadata').where({ id }).first();
+export async function getEventMetadata(
+  id: string,
+): Promise<EventMetadata | undefined> {
+  const row = await db<EventMetadataRow>("event_metadata")
+    .where({ id })
+    .first();
   return row ? rowToEventMetadata(row) : undefined;
 }
 
 export async function upsertEventMetadata(
   id: string,
   spaceId: string,
-  payload: Partial<Omit<EventMetadata, 'id' | 'spaceId'>>
+  payload: Partial<Omit<EventMetadata, "id" | "spaceId">>,
 ): Promise<EventMetadata> {
-  const existing = await db<EventMetadataRow>('event_metadata').where({ id }).first();
+  const existing = await db<EventMetadataRow>("event_metadata")
+    .where({ id })
+    .first();
 
   const rowToInsert: Partial<EventMetadataRow> = {
     id,
@@ -311,11 +364,15 @@ export async function upsertEventMetadata(
   }
 
   if (existing) {
-    await db<EventMetadataRow>('event_metadata').where({ id }).update(rowToInsert);
+    await db<EventMetadataRow>("event_metadata")
+      .where({ id })
+      .update(rowToInsert);
   } else {
     // If inserting new, ensuring defaults
-    if (rowToInsert.agenda_items === undefined) rowToInsert.agenda_items = '[]';
-    await db<EventMetadataRow>('event_metadata').insert(rowToInsert as EventMetadataRow);
+    if (rowToInsert.agenda_items === undefined) rowToInsert.agenda_items = "[]";
+    await db<EventMetadataRow>("event_metadata").insert(
+      rowToInsert as EventMetadataRow,
+    );
   }
 
   const updated = await getEventMetadata(id);
@@ -335,7 +392,7 @@ export interface SiteBackup {
 
 export async function getBackup(): Promise<SiteBackup> {
   const spaces = await getSpaces();
-  const eventMetadataRows = await db<EventMetadataRow>('event_metadata');
+  const eventMetadataRows = await db<EventMetadataRow>("event_metadata");
   const eventMetadata = eventMetadataRows.map(rowToEventMetadata);
 
   return {
@@ -349,9 +406,9 @@ export async function getBackup(): Promise<SiteBackup> {
 export async function restoreBackup(backup: SiteBackup): Promise<void> {
   await db.transaction(async (trx) => {
     // 1. Clear existing data
-    await trx('event_metadata').delete();
-    await trx('space_sections').delete();
-    await trx('spaces').delete();
+    await trx("event_metadata").delete();
+    await trx("space_sections").delete();
+    await trx("spaces").delete();
 
     // 2. Insert spaces and sections
     for (const space of backup.spaces) {
@@ -368,7 +425,7 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         upload_groups: JSON.stringify(space.uploadGroups),
         sort_order: space.sortOrder,
       };
-      await trx('spaces').insert(spaceRow);
+      await trx("spaces").insert(spaceRow);
 
       for (const section of space.sections) {
         const sectionRow: SectionRow = {
@@ -379,7 +436,7 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
           drive_folder_id: section.driveFolderId,
           sort_order: section.sortOrder,
         };
-        await trx('space_sections').insert(sectionRow);
+        await trx("space_sections").insert(sectionRow);
       }
     }
 
@@ -392,7 +449,7 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
           google_doc_url: meta.googleDocUrl ?? null,
           agenda_items: JSON.stringify(meta.agendaItems),
         };
-        await trx('event_metadata').insert(row);
+        await trx("event_metadata").insert(row);
       }
     }
   });
@@ -400,9 +457,9 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
 
 export async function resetSite(): Promise<void> {
   await db.transaction(async (trx) => {
-    await trx('event_metadata').delete();
-    await trx('space_sections').delete();
-    await trx('spaces').delete();
+    await trx("event_metadata").delete();
+    await trx("space_sections").delete();
+    await trx("spaces").delete();
   });
 }
 
@@ -410,8 +467,10 @@ export async function resetSite(): Promise<void> {
 // Audit Logs
 // ---------------------------------------------------------------------------
 
-export async function createAuditLog(log: Omit<AuditLog, 'id' | 'timestamp'>): Promise<void> {
-  await db('audit_logs').insert({
+export async function createAuditLog(
+  log: Omit<AuditLog, "id" | "timestamp">,
+): Promise<void> {
+  await db("audit_logs").insert({
     user_id: log.userId,
     user_name: log.userName,
     action: log.action,
@@ -422,9 +481,7 @@ export async function createAuditLog(log: Omit<AuditLog, 'id' | 'timestamp'>): P
 }
 
 export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
-  const rows = await db('audit_logs')
-    .orderBy('timestamp', 'desc')
-    .limit(limit);
+  const rows = await db("audit_logs").orderBy("timestamp", "desc").limit(limit);
 
   return rows.map((r) => ({
     id: r.id,

@@ -1,0 +1,31 @@
+[Unit]
+Description=Quorum BFF (Express API)
+Documentation=https://github.com/IHTSDO/quorum
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=quorum
+Group=quorum
+WorkingDirectory=/opt/quorum/apps/bff
+EnvironmentFile=/opt/quorum/deploy/env/bff.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/quorum/apps/bff
+PrivateTmp=true
+
+# Logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quorum-bff
+
+[Install]
+WantedBy=multi-user.target

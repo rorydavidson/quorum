@@ -13,6 +13,8 @@ node_modules/
 # Environment secrets — NEVER commit these
 .env.local
 .env.*.local
+deploy/*.env
+deploy/env/*.env
 
 # Build outputs
 .next/

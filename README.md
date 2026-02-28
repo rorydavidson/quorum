@@ -76,7 +76,7 @@ BFF / Backend-for-Frontend (port 3001)
 5. [Environment Variables](#environment-variables)
 6. [Local Development](#local-development)
 7. [Admin: Configuring Spaces](#admin-configuring-spaces)
-8. [Deployment](#deployment)
+8. [Production Deployment (Ubuntu)](#production-deployment-ubuntu)
 9. [Security Notes](#security-notes)
 
 ---
@@ -407,6 +407,154 @@ The **Audit Log** tab provides a real-time feed of all modifications:
 
 ### Backup & Restore
 Admins can **Export** the entire portal configuration as a JSON file and **Import** it to restore or migrate settings.
+
+---
+
+## Production Deployment (Ubuntu)
+
+Quorum runs as two systemd services (BFF + Web) fronted by nginx with TLS termination. This section covers deploying to Ubuntu 22.04 or 24.04 LTS.
+
+### Production Architecture
+
+```
+Internet
+   │
+   ▼
+nginx (port 443 / 80)
+  ├── /auth/*      → BFF  (127.0.0.1:3001)   Keycloak OIDC redirects
+  ├── /health      → BFF  (127.0.0.1:3001)   Monitoring
+  ├── /_next/*     → Web  (127.0.0.1:3000)   Static assets (long cache)
+  └── /*           → Web  (127.0.0.1:3000)   Next.js pages + API routes
+                            │
+                            └── server-side → BFF (127.0.0.1:3001)
+```
+
+Both services bind to `127.0.0.1` only. nginx handles all external traffic and TLS.
+
+### Deploy Prerequisites
+
+- Ubuntu 22.04 or 24.04 LTS with root/sudo access
+- A domain name with a DNS A record pointing to the server
+- Keycloak client secret, Google Service Account JSON, and optionally a Discourse API key
+
+### Step 1: Clone the Repository
+
+```bash
+sudo mkdir -p /opt/quorum
+sudo chown $(whoami):$(whoami) /opt/quorum
+git clone <your-repo-url> /opt/quorum
+cd /opt/quorum
+```
+
+### Step 2: Run the Setup Script
+
+```bash
+sudo bash deploy/setup.sh your-domain.example.com
+```
+
+This installs Node.js 20, pnpm, nginx, PostgreSQL, certbot, and build tools. It creates a `quorum` system user, a PostgreSQL database with an auto-generated password, systemd unit files, nginx config, and env file stubs with pre-filled `DATABASE_URL` and `SESSION_SECRET`.
+
+### Step 3: Configure Environment Variables
+
+```bash
+sudo nano /opt/quorum/deploy/env/bff.env
+```
+
+Fill in every value marked `FILL_IN`:
+
+| Variable | Source |
+|---|---|
+| `KEYCLOAK_CLIENT_SECRET` | Keycloak Admin → Clients → quorum → Credentials |
+| `KEYCLOAK_REDIRECT_URI` | `https://your-domain.example.com/auth/callback` |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | GCP Service Account JSON → `client_email` |
+| `GOOGLE_PRIVATE_KEY` | GCP Service Account JSON → `private_key` (keep `\n` escapes) |
+| `GOOGLE_PROJECT_ID` | GCP Service Account JSON → `project_id` |
+| `FRONTEND_ORIGIN` | `https://your-domain.example.com` (no trailing slash) |
+
+> Also update your Keycloak client's **Valid Redirect URIs** to include the production callback URL.
+
+The web env file (`deploy/env/web.env`) is pre-filled and typically needs no changes.
+
+### Step 4: Build and Deploy
+
+```bash
+sudo bash deploy/deploy.sh
+```
+
+This installs dependencies, builds all packages, copies static assets, and restarts services. It waits for the BFF health check before starting the web server.
+
+### Step 5: Obtain a TLS Certificate
+
+```bash
+sudo certbot --nginx -d your-domain.example.com
+```
+
+Verify auto-renewal is scheduled:
+
+```bash
+systemctl list-timers | grep certbot
+```
+
+### Updating the Application
+
+```bash
+cd /opt/quorum
+git pull origin main
+sudo bash deploy/deploy.sh
+```
+
+Sessions survive restarts because they are stored in PostgreSQL (not in memory).
+
+### Using a Remote PostgreSQL (e.g. AWS RDS)
+
+To use a managed database instead of local PostgreSQL, update `DATABASE_URL` in `deploy/env/bff.env`:
+
+```
+DATABASE_URL=postgresql://quorum:password@your-rds-endpoint.rds.amazonaws.com:5432/quorum
+```
+
+The setup script's local PostgreSQL step is harmless if you use a remote database — just ignore it.
+
+### Managing Services
+
+```bash
+# View live logs
+journalctl -u quorum-bff -f
+journalctl -u quorum-web -f
+
+# Restart
+sudo systemctl restart quorum-bff
+sudo systemctl restart quorum-web
+
+# Status
+sudo systemctl status quorum-bff
+sudo systemctl status quorum-web
+
+# Health check
+curl http://127.0.0.1:3001/health
+```
+
+### Troubleshooting
+
+| Problem | Likely cause | Fix |
+|---|---|---|
+| BFF: `SESSION_SECRET is not set` | Env file missing or wrong permissions | `chmod 600 deploy/env/bff.env` and check contents |
+| BFF: `DB migration failed` | PostgreSQL not running or bad URL | `systemctl status postgresql` or check `DATABASE_URL` |
+| BFF: `Keycloak discovery failed` | Keycloak URL unreachable | BFF starts anyway; auth won't work until fixed |
+| nginx: 502 Bad Gateway | Upstream service not running | Check `systemctl status quorum-bff quorum-web` |
+| Permission denied | Files not owned by quorum user | `sudo chown -R quorum:quorum /opt/quorum` |
+
+### Deployment File Reference
+
+| File | Purpose |
+|---|---|
+| `deploy/setup.sh` | One-time server provisioning |
+| `deploy/deploy.sh` | Build + restart (run on every update) |
+| `deploy/quorum-bff.service` | systemd unit for Express BFF |
+| `deploy/quorum-web.service` | systemd unit for Next.js frontend |
+| `deploy/nginx/quorum.conf` | nginx reverse proxy config (template with `QUORUM_DOMAIN` placeholder) |
+| `deploy/env/bff.env.example` | BFF env var template (in git) |
+| `deploy/env/web.env.example` | Web env var template (in git) |
 
 ---
 

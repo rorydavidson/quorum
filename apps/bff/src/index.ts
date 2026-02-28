@@ -6,8 +6,9 @@ import express, { type Express } from "express";
 import cors from "cors";
 import session from "express-session";
 import helmet from "helmet";
+import connectPgSimple from "connect-pg-simple";
 import { initKeycloak } from "./services/keycloak.js";
-import { runMigrations } from "./services/db.js";
+import db, { runMigrations, isPostgresDb } from "./services/db.js";
 import authRouter from "./routes/auth.js";
 import documentsRouter from "./routes/documents.js";
 import adminRouter from "./routes/admin.js";
@@ -24,7 +25,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   console.error(
     "[startup] FATAL: SESSION_SECRET is not set. " +
-    "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
+      "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
   );
   process.exit(1);
 }
@@ -55,8 +56,22 @@ app.use(
   }),
 );
 
+// Build session store: PostgreSQL-backed in production, in-memory in dev
+function buildSessionStore(): session.Store | undefined {
+  if (!isPostgresDb) return undefined; // dev: express-session MemoryStore
+  const PgStore = connectPgSimple(session);
+  return new PgStore({
+    conString: process.env.DATABASE_URL,
+    tableName: "user_sessions",
+    createTableIfMissing: true,
+    pruneSessionInterval: 600, // prune expired rows every 10 minutes
+    ttl: 8 * 60 * 60, // 8 hours, matches cookie maxAge
+  });
+}
+
 app.use(
   session({
+    store: buildSessionStore(),
     name: process.env.SESSION_COOKIE_NAME ?? "quorum_session",
     secret: SESSION_SECRET,
     resave: false,
@@ -74,12 +89,23 @@ app.use(
 // Routes
 // ---------------------------------------------------------------------------
 
-app.get("/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    service: "bff",
-    timestamp: new Date().toISOString(),
-  });
+app.get("/health", async (_req, res) => {
+  try {
+    await db.raw("SELECT 1");
+    res.json({
+      status: "ok",
+      service: "bff",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[health] DB check failed:", err);
+    res.status(503).json({
+      status: "error",
+      service: "bff",
+      error: "Database unreachable",
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 app.use("/auth", authRouter);
@@ -100,14 +126,21 @@ interface AppError extends Error {
   code?: string;
 }
 
-app.use((err: AppError, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("[BFF Error]", err);
-  const status = err.status || err.statusCode || 500;
-  res.status(status).json({
-    error: err.message || "Internal Server Error",
-    code: err.code || "INTERNAL_ERROR",
-  });
-});
+app.use(
+  (
+    err: AppError,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    console.error("[BFF Error]", err);
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({
+      error: err.message || "Internal Server Error",
+      code: err.code || "INTERNAL_ERROR",
+    });
+  },
+);
 
 // ---------------------------------------------------------------------------
 // 404 fallback
@@ -138,9 +171,35 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`BFF running on http://localhost:${PORT}`);
   });
+
+  // ---------------------------------------------------------------------------
+  // Graceful shutdown — handles systemd SIGTERM and Ctrl+C (SIGINT)
+  // ---------------------------------------------------------------------------
+
+  const shutdown = async (signal: string) => {
+    console.log(`[shutdown] ${signal} received — draining connections...`);
+    server.close(async () => {
+      try {
+        await db.destroy();
+        console.log("[shutdown] DB connections closed. Exiting.");
+      } catch (err) {
+        console.error("[shutdown] Error closing DB:", err);
+      }
+      process.exit(0);
+    });
+
+    // Force exit after 30 seconds if connections don't drain
+    setTimeout(() => {
+      console.error("[shutdown] Forced exit after 30s timeout");
+      process.exit(1);
+    }, 30_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 start();

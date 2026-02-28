@@ -15,6 +15,7 @@
   "dependencies": {
     "@snomed/types": "workspace:*",
     "better-sqlite3": "^11.9.1",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -25,16 +26,19 @@
     "multer": "^2.0.2",
     "node-ical": "^0.25.4",
     "openid-client": "^5.7.1",
+    "pg": "^8.19.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/connect-pg-simple": "^7.0.3",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/express-session": "^1.18.1",
     "@types/helmet": "^4.0.0",
     "@types/multer": "^2.0.0",
     "@types/node": "^22.13.9",
+    "@types/pg": "^8.16.0",
     "@types/supertest": "^7.2.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",

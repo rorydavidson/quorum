@@ -1,0 +1,31 @@
+[Unit]
+Description=Quorum Web (Next.js)
+Documentation=https://github.com/IHTSDO/quorum
+After=network.target quorum-bff.service
+Wants=quorum-bff.service
+
+[Service]
+Type=simple
+User=quorum
+Group=quorum
+WorkingDirectory=/opt/quorum/apps/web/.next/standalone
+EnvironmentFile=/opt/quorum/deploy/env/web.env
+ExecStart=/usr/bin/node apps/web/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/quorum/apps/web
+PrivateTmp=true
+
+# Logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quorum-web
+
+[Install]
+WantedBy=multi-user.target
