@@ -1,0 +1,33 @@
+# Dependencies (reinstalled in container)
+node_modules/
+.pnpm-store/
+
+# Build outputs (rebuilt in container)
+.next/
+dist/
+out/
+
+# Environment secrets
+.env
+.env.*
+.env.local
+deploy/env/*.env
+deploy/docker/*.env
+
+# Database files
+*.db
+*.db-journal
+
+# Git
+.git
+.gitignore
+
+# Editor / OS
+.vscode/
+.DS_Store
+.claude/
+
+# Deployment scripts (not needed in image)
+deploy/deploy.sh
+deploy/setup.sh
+deploy/*.service

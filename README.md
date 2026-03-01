@@ -76,8 +76,9 @@ BFF / Backend-for-Frontend (port 3001)
 5. [Environment Variables](#environment-variables)
 6. [Local Development](#local-development)
 7. [Admin: Configuring Spaces](#admin-configuring-spaces)
-8. [Production Deployment (Ubuntu)](#production-deployment-ubuntu)
-9. [Security Notes](#security-notes)
+8. [Docker Deployment](#docker-deployment)
+9. [Production Deployment (Ubuntu)](#production-deployment-ubuntu)
+10. [Security Notes](#security-notes)
 
 ---
 
@@ -407,6 +408,185 @@ The **Audit Log** tab provides a real-time feed of all modifications:
 
 ### Backup & Restore
 Admins can **Export** the entire portal configuration as a JSON file and **Import** it to restore or migrate settings.
+
+---
+
+## Docker Deployment
+
+Quorum ships with a Docker Compose stack that mirrors the production bare-metal architecture: an nginx reverse proxy in front of the Next.js web app and Express BFF, backed by PostgreSQL.
+
+### Docker Architecture
+
+```
+Internet / localhost
+       │
+       ▼
+nginx container (ports 80/443 — only externally-exposed service)
+  ├── /auth/*        → bff:3001     Keycloak OIDC redirects
+  ├── /health        → bff:3001     Health check
+  ├── /_next/static  → web:3000     Cached static assets
+  └── /*             → web:3000     Next.js pages + API routes
+                          │
+                          └── server-side → bff:3001
+                                              │
+                                              └── postgres:5432
+```
+
+All four containers run on an internal Docker bridge network. Only nginx publishes ports to the host.
+
+### Prerequisites
+
+- Docker Engine ≥ 20 and Docker Compose v2
+- The Keycloak client and Google Service Account already configured (see sections above)
+
+### Step 1: Create Environment Files
+
+```bash
+# Copy the three template files
+cp deploy/docker/.env.example  deploy/docker/.env
+cp deploy/docker/bff.env.example deploy/docker/bff.env
+cp deploy/docker/web.env.example deploy/docker/web.env
+```
+
+### Step 2: Configure `deploy/docker/.env`
+
+Root-level Compose variables shared across services:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `POSTGRES_PASSWORD` | — | PostgreSQL password (used by both postgres and BFF `DATABASE_URL`) |
+| `PUBLIC_URL` | `http://localhost` | The URL users type in the browser. Sets `FRONTEND_ORIGIN` for CORS. |
+| `COOKIE_SECURE` | `false` | Set to `true` **only** when TLS is enabled. Browsers reject `Secure` cookies over plain HTTP. |
+| `HTTP_PORT` | `80` | Host port mapped to nginx port 80 |
+| `HTTPS_PORT` | `443` | Host port mapped to nginx port 443 |
+
+### Step 3: Configure `deploy/docker/bff.env`
+
+Fill in every `CHANGE_ME` value:
+
+| Variable | Source |
+|---|---|
+| `KEYCLOAK_URL` | Your Keycloak base URL (e.g. `https://snoauth.example.org`) |
+| `KEYCLOAK_REALM` | Keycloak realm name |
+| `KEYCLOAK_CLIENT_SECRET` | Keycloak Admin → Clients → quorum → Credentials |
+| `KEYCLOAK_REDIRECT_URI` | `<PUBLIC_URL>/auth/callback` — must match Keycloak's Valid Redirect URIs |
+| `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | From the GCP Service Account JSON |
+| `GOOGLE_PRIVATE_KEY` | From the GCP Service Account JSON (keep `\n` escapes) |
+| `GOOGLE_PROJECT_ID` | From the GCP Service Account JSON |
+| `DISCOURSE_URL` | Your Discourse forum base URL |
+
+> **Note:** `DATABASE_URL`, `PORT`, `NODE_ENV`, `FRONTEND_ORIGIN`, and `COOKIE_SECURE` are set by `docker-compose.yml` and should **not** be duplicated in `bff.env`.
+
+### Step 4: Configure `deploy/docker/web.env`
+
+Set `DISCOURSE_URL` to match the BFF value. `NEXT_PUBLIC_APP_NAME` defaults to `Quorum`.
+
+### Step 5: Build and Start
+
+```bash
+# Build all images
+docker compose build
+
+# Start the stack (detached)
+docker compose up -d
+
+# Verify all containers are healthy
+docker compose ps
+
+# Check the BFF health endpoint
+curl http://localhost/health
+```
+
+Visit `http://localhost` (or your `PUBLIC_URL`). You should see the Quorum landing page. Click **Sign in** to test the full Keycloak OIDC flow.
+
+### Keycloak Redirect URI for Docker
+
+When running behind the Docker nginx proxy, the Keycloak redirect URI must use the **public URL** (what the browser sees), not an internal Docker hostname:
+
+```
+# Local dev (HTTP):
+KEYCLOAK_REDIRECT_URI=http://localhost/auth/callback
+
+# Production (HTTPS):
+KEYCLOAK_REDIRECT_URI=https://quorum.example.org/auth/callback
+```
+
+Register the same URI in Keycloak → Clients → quorum → Valid Redirect URIs.
+
+### Enabling TLS (Production)
+
+For production HTTPS:
+
+1. Place your certificate files in `deploy/docker/certs/`:
+   - `fullchain.pem`
+   - `privkey.pem`
+
+2. Edit `deploy/docker/nginx.conf` — uncomment the HTTPS server block and change the HTTP block to redirect to HTTPS.
+
+3. Update `deploy/docker/.env`:
+   ```
+   PUBLIC_URL=https://quorum.example.org
+   COOKIE_SECURE=true
+   ```
+
+4. Update `KEYCLOAK_REDIRECT_URI` in `deploy/docker/bff.env` to use `https://`.
+
+5. Rebuild and restart:
+   ```bash
+   docker compose up -d
+   ```
+
+### Local Dev Without Keycloak
+
+To run the Docker stack without a real Keycloak server, uncomment `DEV_AUTH_BYPASS=true` in `deploy/docker/bff.env` and set `NODE_ENV=development` on the BFF service in `docker-compose.yml`. This injects a fake admin user for all requests.
+
+### Managing the Stack
+
+```bash
+# View live logs (all services)
+docker compose logs -f
+
+# View logs for a specific service
+docker compose logs -f bff
+
+# Restart a single service
+docker compose restart web
+
+# Rebuild and restart after code changes
+docker compose build web bff
+docker compose up -d
+
+# Stop everything (data preserved in postgres_data volume)
+docker compose down
+
+# Stop and delete all data (including the database)
+docker compose down -v
+```
+
+### Troubleshooting
+
+| Problem | Likely cause | Fix |
+|---|---|---|
+| BFF: `Cannot find module '/app/dist/index.js'` | Build output path mismatch | Run `docker compose build --no-cache bff` |
+| `Missing OAuth state or nonce` after Keycloak callback | `COOKIE_SECURE=true` but running over HTTP | Set `COOKIE_SECURE=false` in `deploy/docker/.env` |
+| Every click redirects to Keycloak | Session destroyed by Link prefetch, or stale image | Rebuild with `docker compose build --no-cache web` and clear browser cookies |
+| BFF: `Keycloak discovery failed` | Keycloak URL unreachable from inside Docker | Ensure the URL is accessible from the container network (not `localhost`) |
+| nginx: 502 Bad Gateway | Upstream container not ready | Check `docker compose ps` — wait for health checks to pass |
+| Database connection refused | PostgreSQL not healthy yet | BFF `depends_on` waits for health; check `docker compose logs postgres` |
+
+### Docker File Reference
+
+| File | Purpose |
+|---|---|
+| `docker-compose.yml` | Service orchestration (postgres, bff, web, nginx) |
+| `apps/bff/Dockerfile` | Multi-stage BFF build (pnpm deploy + tsc) |
+| `apps/web/Dockerfile` | Multi-stage Next.js standalone build |
+| `deploy/docker/nginx.conf` | nginx reverse proxy config (Docker service names) |
+| `deploy/docker/.env.example` | Compose-level variables template |
+| `deploy/docker/bff.env.example` | BFF secrets template |
+| `deploy/docker/web.env.example` | Web env template |
+| `.dockerignore` | Excludes node_modules, .next, dist, .env, .git from build context |
 
 ---
 

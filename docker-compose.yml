@@ -1,0 +1,92 @@
+# Quorum Governance Portal — Docker Compose
+#
+# Usage:
+#   1. Copy deploy/docker/*.env.example files to *.env and fill in secrets
+#   2. Create deploy/docker/.env with POSTGRES_PASSWORD and PUBLIC_URL
+#   3. docker compose build
+#   4. docker compose up -d
+#
+# Architecture:
+#   nginx (port 80/443) → /auth/* → bff:3001
+#                        → /*     → web:3000
+#   bff:3001 → postgres:5432
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quorum
+      POSTGRES_USER: quorum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quorum_dev_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quorum"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  bff:
+    build:
+      context: .
+      dockerfile: apps/bff/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./deploy/docker/bff.env
+    environment:
+      PORT: "3001"
+      NODE_ENV: production
+      DATABASE_URL: postgresql://quorum:${POSTGRES_PASSWORD:-quorum_dev_only}@postgres:5432/quorum
+      FRONTEND_ORIGIN: ${PUBLIC_URL:-http://localhost}
+      # Set to "true" when TLS is enabled (HTTPS). Browsers reject Secure
+      # cookies over plain HTTP, which breaks the OIDC login flow.
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./deploy/docker/web.env
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      BFF_URL: http://bff:3001
+    depends_on:
+      - bff
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/docker/certs:/etc/nginx/certs:ro
+      - certbot_webroot:/var/www/certbot:ro
+    depends_on:
+      - web
+      - bff
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  certbot_webroot:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,30 +1,29 @@
-import Image from 'next/image';
-import Link from 'next/link';
-import type { SessionUser } from '@snomed/types';
-import { NavItems } from './NavItems';
+import Image from "next/image";
+import Link from "next/link";
+import type { SessionUser } from "@snomed/types";
+import { NavItems } from "./NavItems";
 
 interface SidebarProps {
   user: SessionUser | null;
 }
 
 function userInitials(user: SessionUser): string {
-  const first = user.given_name?.[0] ?? user.name?.[0] ?? '?';
-  const last = user.family_name?.[0] ?? '';
+  const first = user.given_name?.[0] ?? user.name?.[0] ?? "?";
+  const last = user.family_name?.[0] ?? "";
   return (first + last).toUpperCase();
 }
 
 function isAdminUser(user: SessionUser | null): boolean {
   if (!user) return false;
-  return user.groups.some((g) => g === 'portal_admin' || g === '/portal_admin');
+  return user.groups.some((g) => g === "portal_admin" || g === "/portal_admin");
 }
 
 export function Sidebar({ user }: SidebarProps) {
   const admin = isAdminUser(user);
-  const initials = user ? userInitials(user) : '?';
+  const initials = user ? userInitials(user) : "?";
 
   return (
     <aside className="hidden lg:flex flex-col w-60 flex-shrink-0 h-screen sticky top-0 bg-white border-r border-snomed-border overflow-hidden">
-
       {/* Logo */}
       <div className="flex items-center px-5 h-16 border-b border-snomed-border flex-shrink-0">
         <Link href="/dashboard" aria-label="Quorum home">
@@ -51,7 +50,7 @@ export function Sidebar({ user }: SidebarProps) {
             {/* Avatar */}
             <div
               className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white select-none"
-              style={{ backgroundColor: '#009FE3' }}
+              style={{ backgroundColor: "#009FE3" }}
               aria-hidden="true"
             >
               {initials}
@@ -67,9 +66,11 @@ export function Sidebar({ user }: SidebarProps) {
             </div>
           </div>
 
-          {/* Logout */}
+          {/* Logout — prefetch={false} is critical: without it Next.js
+              prefetches the logout API route on page load, destroying the session. */}
           <Link
             href="/api/auth/logout"
+            prefetch={false}
             className="flex items-center justify-center w-full min-h-[44px] px-4 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 active:bg-red-100 transition-colors duration-150"
           >
             Sign out

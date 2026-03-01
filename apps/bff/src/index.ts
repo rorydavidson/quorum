@@ -39,6 +39,10 @@ if (SESSION_SECRET.length < 32) {
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
 
+// Trust the first reverse proxy (nginx / ALB) so that req.protocol and
+// req.ip reflect the original client request, not the proxy-to-container hop.
+app.set("trust proxy", 1);
+
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
@@ -78,7 +82,13 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      // COOKIE_SECURE overrides the default (production = secure).
+      // Set COOKIE_SECURE=false when running production behind HTTP-only
+      // (e.g. Docker without TLS). Browsers reject Secure cookies over HTTP.
+      secure:
+        process.env.COOKIE_SECURE !== undefined
+          ? process.env.COOKIE_SECURE === "true"
+          : process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 8 * 60 * 60 * 1000, // 8 hours
     },

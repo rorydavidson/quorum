@@ -46,7 +46,7 @@ Primary goal: a clean, professional, **iPadOS-optimised** interface for board me
 | PDF Viewer | react-pdf (PDF.js) | In-portal viewer, avoids iPadOS app redirects |
 | Styling | Tailwind CSS + shadcn/ui | Customised to SNOMED brand |
 | Package manager | pnpm | Monorepo support, disk efficiency |
-| Hosting | AWS ECS Fargate + S3 | Container-based, scalable |
+| Hosting | AWS ECS Fargate + S3 | Scalable |
 
 ---
 

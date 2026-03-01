@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { useEffect, useRef } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { X } from 'lucide-react';
-import type { SessionUser } from '@snomed/types';
-import { NavItems } from './NavItems';
+import { useEffect, useRef } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { X } from "lucide-react";
+import type { SessionUser } from "@snomed/types";
+import { NavItems } from "./NavItems";
 
 interface NavDrawerProps {
   user: SessionUser | null;
@@ -15,8 +15,8 @@ interface NavDrawerProps {
 }
 
 function userInitials(user: SessionUser): string {
-  const first = user.given_name?.[0] ?? user.name?.[0] ?? '?';
-  const last = user.family_name?.[0] ?? '';
+  const first = user.given_name?.[0] ?? user.name?.[0] ?? "?";
+  const last = user.family_name?.[0] ?? "";
   return (first + last).toUpperCase();
 }
 
@@ -26,23 +26,25 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
   // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && open) onClose();
+      if (e.key === "Escape" && open) onClose();
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
   // Lock body scroll while open
   useEffect(() => {
     if (open) {
-      document.body.style.overflow = 'hidden';
+      document.body.style.overflow = "hidden";
     } else {
-      document.body.style.overflow = '';
+      document.body.style.overflow = "";
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [open]);
 
-  const initials = user ? userInitials(user) : '?';
+  const initials = user ? userInitials(user) : "?";
 
   return (
     <>
@@ -51,9 +53,11 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
         onClick={onClose}
         aria-hidden="true"
         className={[
-          'fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden',
-          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        ].join(' ')}
+          "fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden",
+          open
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none",
+        ].join(" ")}
       />
 
       {/* Drawer panel */}
@@ -63,9 +67,9 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
         aria-modal="true"
         aria-label="Navigation menu"
         className={[
-          'fixed inset-y-0 left-0 z-50 flex flex-col w-[280px] bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden',
-          open ? 'translate-x-0' : '-translate-x-full',
-        ].join(' ')}
+          "fixed inset-y-0 left-0 z-50 flex flex-col w-[280px] bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden",
+          open ? "translate-x-0" : "-translate-x-full",
+        ].join(" ")}
       >
         {/* Drawer header */}
         <div className="flex items-center justify-between px-5 h-16 border-b border-snomed-border flex-shrink-0">
@@ -98,7 +102,7 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
             <div className="flex items-center gap-3 px-2">
               <div
                 className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white select-none"
-                style={{ backgroundColor: '#009FE3' }}
+                style={{ backgroundColor: "#009FE3" }}
                 aria-hidden="true"
               >
                 {initials}
@@ -112,8 +116,11 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
                 </p>
               </div>
             </div>
+            {/* prefetch={false} is critical: without it Next.js prefetches
+                the logout API route on page load, destroying the session. */}
             <Link
               href="/api/auth/logout"
+              prefetch={false}
               className="flex items-center justify-center w-full min-h-[44px] px-4 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 active:bg-red-100 transition-colors duration-150"
               onClick={onClose}
             >
