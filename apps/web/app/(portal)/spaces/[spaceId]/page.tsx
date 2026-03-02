@@ -11,6 +11,7 @@ import {
   Video,
   ArrowRight,
 } from 'lucide-react';
+import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSpaceFiles, getSpaceEvents, getSpaceForumTopics } from '@/lib/api-client';
 import type { SpaceWithFiles } from '@/lib/api-client';
 import type { CalendarEvent, DiscoursePost, DriveFile, SpaceSection } from '@snomed/types';
@@ -171,13 +172,12 @@ export default async function SpaceLandingPage({ params }: Props) {
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
       {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-1.5 text-xs text-snomed-grey/50">
-        <Link href="/spaces" className="hover:text-snomed-blue transition-colors">
-          Spaces
-        </Link>
-        <ChevronRight size={12} aria-hidden="true" />
-        <span className="text-snomed-grey font-medium">{space?.name ?? spaceId}</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: 'Spaces', href: '/spaces' },
+          { label: space?.name ?? spaceId },
+        ]}
+      />
 
       {/* Space header */}
       <div className="mb-8 flex items-start gap-4">

@@ -72,20 +72,26 @@ function SpaceCard({ space }: { space: SpaceConfig }) {
   return (
     <Link
       href={`/spaces/${space.id}`}
-      className="group flex flex-col gap-2 rounded-lg border border-snomed-border bg-white p-5 shadow-sm transition-shadow hover:shadow-md active:shadow-sm min-h-[44px]"
+      className="group flex flex-col gap-3 rounded-xl border border-snomed-border bg-white p-5 shadow-sm min-h-[130px] transition-all duration-200 hover:shadow-md hover:border-snomed-blue/40 active:shadow-sm"
     >
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 mt-0.5 w-9 h-9 rounded-md bg-snomed-blue-light flex items-center justify-center">
-          <FolderOpen size={18} className="text-snomed-blue" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-medium text-snomed-grey truncate group-hover:text-snomed-blue transition-colors">
-            {space.name}
+      {/* Icon — fills with blue on card hover */}
+      <div className="w-11 h-11 rounded-xl bg-snomed-blue-light flex items-center justify-center flex-shrink-0 transition-colors duration-200 group-hover:bg-snomed-blue">
+        <FolderOpen
+          size={22}
+          className="text-snomed-blue transition-colors duration-200 group-hover:text-white"
+        />
+      </div>
+
+      {/* Text */}
+      <div className="flex flex-col gap-1">
+        <p className="text-[15px] font-semibold text-snomed-grey leading-snug transition-colors duration-200 group-hover:text-snomed-blue">
+          {space.name}
+        </p>
+        {space.description && (
+          <p className="text-sm text-snomed-grey/55 line-clamp-2 leading-relaxed">
+            {space.description}
           </p>
-          {space.description && (
-            <p className="mt-0.5 text-xs text-snomed-grey/60 line-clamp-2">{space.description}</p>
-          )}
-        </div>
+        )}
       </div>
     </Link>
   );

@@ -1,6 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { ChevronRight, Calendar, Clock, MapPin, Video } from 'lucide-react';
+import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSpaceFiles, getSpaceEvents } from '@/lib/api-client';
 import type { CalendarEvent } from '@snomed/types';
 
@@ -77,17 +78,13 @@ export default async function SpaceCalendarPage({ params }: Props) {
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-1.5 text-xs text-snomed-grey/50">
-        <Link href="/spaces" className="hover:text-snomed-blue transition-colors">
-          Spaces
-        </Link>
-        <ChevronRight size={12} aria-hidden="true" />
-        <Link href={`/spaces/${spaceId}`} className="hover:text-snomed-blue transition-colors">
-          {space?.name ?? spaceId}
-        </Link>
-        <ChevronRight size={12} aria-hidden="true" />
-        <span className="text-snomed-grey font-medium">Calendar</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: 'Spaces', href: '/spaces' },
+          { label: space?.name ?? spaceId, href: `/spaces/${spaceId}` },
+          { label: 'Calendar' },
+        ]}
+      />
 
       {/* Header */}
       <div className="mb-8 flex items-start gap-4">

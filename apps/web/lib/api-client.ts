@@ -219,6 +219,24 @@ export function getUserFromHeaders(
 }
 
 // ---------------------------------------------------------------------------
+// Space meta (client-side) — returns config without Drive files
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch space config without listing Drive files.
+ * Client-side only (relative URL). Used by the sidebar to show space nav.
+ */
+export async function getSpaceMeta(spaceId: string): Promise<SpaceConfig> {
+  const res = await fetch(`/api/documents/${spaceId}/meta`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(err.error ?? `Error ${res.status}`);
+  }
+  const data = await res.json() as { space: SpaceConfig };
+  return data.space;
+}
+
+// ---------------------------------------------------------------------------
 // Upload — client-side (uses XHR for progress reporting)
 // ---------------------------------------------------------------------------
 
@@ -320,6 +338,34 @@ export async function deleteFileFromSpace(spaceId: string, fileId: string): Prom
     const err = await res.json().catch(() => ({ error: 'Delete failed' }));
     throw new Error(err.error || 'Delete failed');
   }
+}
+
+/**
+ * Create a new folder in a space's Drive folder.
+ * Client-side only (relative URL). Returns the created DriveFile.
+ */
+export async function createFolderInSpace(
+  spaceId: string,
+  name: string,
+  sectionId?: string,
+  folderId?: string | null,
+): Promise<DriveFile> {
+  const url = new URL(`/api/documents/${spaceId}/folders`, window.location.origin);
+  if (folderId) url.searchParams.set('folderId', folderId);
+  else if (sectionId) url.searchParams.set('sectionId', sectionId);
+
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create folder' })) as { error?: string };
+    throw new Error(err.error ?? 'Failed to create folder');
+  }
+
+  return res.json() as Promise<DriveFile>;
 }
 
 /**

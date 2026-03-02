@@ -7,6 +7,7 @@ import type { DriveFile } from '@snomed/types';
 import { DocumentTypeIcon, mimeTypeLabel } from './DocumentTypeIcon';
 import { fileDownloadUrl, fileForceDownloadUrl, deleteFileFromSpace, createOfficialRecord } from '@/lib/api-client';
 import { UploadButton } from './UploadButton';
+import { NewFolderButton } from './NewFolderButton';
 
 // Dynamically import PDFViewer — react-pdf is large and SSR-incompatible
 const PDFViewer = lazy(() =>
@@ -125,13 +126,32 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false, can
 
   if (files.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <FileSearch size={48} className="mb-4 text-snomed-grey/30" />
-        <p className="text-base font-medium text-snomed-grey">No documents found</p>
-        <p className="mt-1 text-sm text-snomed-grey/60">
-          This space doesn&apos;t have any documents yet.
-        </p>
-      </div>
+      <>
+        {canUpload && (
+          <div className="mb-4 flex items-center justify-end gap-2 flex-wrap">
+            {folderId && (
+              <button
+                onClick={() => router.back()}
+                className="mr-auto flex items-center gap-2 text-sm font-medium text-snomed-blue hover:text-snomed-dark-blue transition-colors"
+              >
+                <ArrowLeft size={16} />
+                Back to parent
+              </button>
+            )}
+            <NewFolderButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+            <UploadButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+          </div>
+        )}
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <FileSearch size={48} className="mb-4 text-snomed-grey/30" />
+          <p className="text-base font-medium text-snomed-grey">No documents found</p>
+          <p className="mt-1 text-sm text-snomed-grey/60">
+            {canUpload
+              ? 'Upload a document or create a folder to get started.'
+              : 'This space doesn\u2019t have any documents yet.'}
+          </p>
+        </div>
+      </>
     );
   }
 
@@ -184,9 +204,12 @@ export function DocumentList({ spaceId, sectionId, files, canUpload = false, can
           )}
         </div>
 
-        {/* Upload button — shown only when the user has upload permission */}
+        {/* Folder + Upload buttons — shown only when the user has upload permission */}
         {canUpload && (
-          <UploadButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+          <div className="flex items-center gap-2">
+            <NewFolderButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+            <UploadButton spaceId={spaceId} sectionId={sectionId} folderId={folderId} />
+          </div>
         )}
       </div>
 

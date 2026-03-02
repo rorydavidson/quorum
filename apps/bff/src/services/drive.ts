@@ -364,6 +364,39 @@ export async function copyFileInDrive(
 }
 
 /**
+ * Create a new folder inside a Drive parent folder.
+ * Returns the newly-created DriveFile (with folder mimeType).
+ */
+export async function createFolder(
+  parentFolderId: string,
+  folderName: string,
+): Promise<DriveFile> {
+  if (isMockMode()) {
+    return {
+      id: `mock-folder-${Date.now()}`,
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      size: undefined,
+      createdTime: new Date().toISOString(),
+      modifiedTime: new Date().toISOString(),
+      isOfficialRecord: false,
+    };
+  }
+
+  const res = await drive().files.create({
+    supportsAllDrives: true,
+    requestBody: {
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentFolderId],
+    },
+    fields: "id, name, mimeType, createdTime, modifiedTime, webViewLink",
+  });
+
+  return mapFile(res.data);
+}
+
+/**
  * Move a file to the trash in Drive.
  * This is safer than permanent deletion and more consistent with user expectations.
  */

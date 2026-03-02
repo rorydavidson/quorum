@@ -11,7 +11,7 @@ import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog } from "../services/db.js";
-import { listFiles, downloadFile, uploadFile, deleteFile } from "../services/drive.js";
+import { listFiles, downloadFile, uploadFile, deleteFile, createFolder } from "../services/drive.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -138,6 +138,27 @@ router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
       .status(502)
       .json({ error: "Failed to list files from Drive", code: "DRIVE_ERROR" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// GET /documents/:spaceId/meta — return space config only (no Drive call)
+// ---------------------------------------------------------------------------
+
+router.get("/:spaceId/meta", async (req: Request, res: Response): Promise<void> => {
+  const user = req.session.user!;
+  const space = await getSpaceById(String(req.params.spaceId));
+
+  if (!space) {
+    res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+    return;
+  }
+
+  if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+    res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+    return;
+  }
+
+  res.json({ space });
 });
 
 // ---------------------------------------------------------------------------
@@ -408,6 +429,67 @@ router.post(
       res
         .status(502)
         .json({ error: "Failed to upload file to Drive", code: "DRIVE_ERROR" });
+    }
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// POST /documents/:spaceId/folders — create a folder in the space's Drive
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/:spaceId/folders",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const space = await getSpaceById(String(req.params.spaceId));
+
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+
+    if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+      res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+      return;
+    }
+
+    if (!userCanUpload(user.groups, space.uploadGroups ?? [], isAdminUser(user.groups))) {
+      res.status(403).json({ error: "Create folder not permitted", code: "FOLDER_FORBIDDEN" });
+      return;
+    }
+
+    const { name } = req.body as { name?: unknown };
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "Folder name is required", code: "INVALID_NAME" });
+      return;
+    }
+
+    try {
+      const folderId = req.query.folderId as string | undefined;
+      const sectionId = req.query.sectionId as string | undefined;
+      let targetFolderId = space.driveFolderId;
+
+      if (folderId) {
+        targetFolderId = folderId;
+      } else if (sectionId) {
+        const section = await getSectionById(space.id, sectionId);
+        if (section) targetFolderId = section.driveFolderId;
+      }
+
+      const folder = await createFolder(targetFolderId, name.trim());
+      res.status(201).json(folder);
+
+      await createAuditLog({
+        userId: user.sub,
+        userName: user.name,
+        action: "CREATE_FOLDER",
+        entityType: "DOCUMENT",
+        entityId: folder.id,
+        details: JSON.stringify({ spaceId: space.id, name: name.trim(), folderId: targetFolderId }),
+      });
+    } catch (err) {
+      console.error("[documents] Create folder error:", err);
+      res.status(502).json({ error: "Failed to create folder in Drive", code: "DRIVE_ERROR" });
     }
   }),
 );

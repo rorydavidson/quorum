@@ -1,6 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
-import { ChevronRight, Folder } from 'lucide-react';
+import { Folder } from 'lucide-react';
+import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSectionFiles, getUserFromHeaders } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SectionWithFiles } from '@/lib/api-client';
@@ -39,22 +40,13 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
       {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-1.5 text-xs text-snomed-grey/50">
-        <Link href="/spaces" className="hover:text-snomed-blue transition-colors">
-          Spaces
-        </Link>
-        <ChevronRight size={12} aria-hidden="true" />
-        <Link
-          href={`/spaces/${spaceId}`}
-          className="hover:text-snomed-blue transition-colors"
-        >
-          {data?.space.name ?? spaceId}
-        </Link>
-        <ChevronRight size={12} aria-hidden="true" />
-        <span className="text-snomed-grey font-medium">
-          {data?.section.name ?? sectionId}
-        </span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: 'Spaces', href: '/spaces' },
+          { label: data?.space.name ?? spaceId, href: `/spaces/${spaceId}` },
+          { label: data?.section.name ?? sectionId },
+        ]}
+      />
 
       {/* Header */}
       <div className="mb-6 flex items-start gap-4">

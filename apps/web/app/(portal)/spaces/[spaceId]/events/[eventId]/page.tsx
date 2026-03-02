@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, Calendar, Clock, MapPin, ExternalLink } from "lucide-react";
+import { Calendar, Clock, MapPin, ExternalLink } from "lucide-react";
+import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { getEventDetails } from "@/lib/api-client";
 import { EventForm } from "./EventForm";
 import { FormattedText } from "@/components/common/FormattedText";
@@ -50,29 +51,14 @@ export default async function EventPage({ params }: Props) {
     return (
         <div className="p-6 lg:p-8 max-w-5xl mx-auto">
             {/* Breadcrumb */}
-            <nav className="mb-6 flex items-center gap-1.5 text-xs text-snomed-grey/50">
-                <Link href="/spaces" className="hover:text-snomed-blue transition-colors">
-                    Spaces
-                </Link>
-                <ChevronRight size={12} aria-hidden="true" />
-                <Link
-                    href={`/spaces/${spaceId}`}
-                    className="hover:text-snomed-blue transition-colors"
-                >
-                    {event.spaceName}
-                </Link>
-                <ChevronRight size={12} aria-hidden="true" />
-                <Link
-                    href={`/spaces/${spaceId}/calendar`}
-                    className="hover:text-snomed-blue transition-colors"
-                >
-                    Calendar
-                </Link>
-                <ChevronRight size={12} aria-hidden="true" />
-                <span className="text-snomed-grey font-medium truncate max-w-[200px]">
-                    {event.summary}
-                </span>
-            </nav>
+            <Breadcrumb
+                items={[
+                    { label: 'Spaces', href: '/spaces' },
+                    { label: event.spaceName, href: `/spaces/${spaceId}` },
+                    { label: 'Calendar', href: `/spaces/${spaceId}/calendar` },
+                    { label: event.summary },
+                ]}
+            />
 
             {/* Event Header */}
             <div className="mb-8 p-6 rounded-2xl border border-snomed-border bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
