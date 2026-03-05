@@ -6,11 +6,13 @@
 
 # Plan files (local planning only)
 *-plan.md
+CLAUDE.md
 
 # Dependencies
 node_modules/
 
 # Environment secrets — NEVER commit these
+.env                    # root compose env (production secrets)
 .env.local
 .env.*.local
 deploy/*.env

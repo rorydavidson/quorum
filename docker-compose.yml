@@ -1,15 +1,20 @@
 # Quorum Governance Portal — Docker Compose
 #
-# Usage:
+# ── Local development (HTTP, no TLS) ─────────────────────────────────────────
 #   1. Copy deploy/docker/*.env.example files to *.env and fill in secrets
-#   2. Create deploy/docker/.env with POSTGRES_PASSWORD and PUBLIC_URL
+#   2. Create a .env at the repo root (see .env.example)
 #   3. docker compose build
 #   4. docker compose up -d
 #
+# ── Production (HTTPS + Let's Encrypt) ───────────────────────────────────────
+#   Use docker-compose.prod.yml as an overlay:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   See docker-compose.prod.yml for the TLS bootstrap procedure.
+#
 # Architecture:
-#   nginx (port 80/443) → /auth/* → bff:3001
-#                        → /*     → web:3000
-#   bff:3001 → postgres:5432
+#   nginx (port 80) → /auth/* → bff:3001
+#                   → /*     → web:3000
+#   bff:3001        → postgres:5432
 
 services:
   postgres:
@@ -41,8 +46,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://quorum:${POSTGRES_PASSWORD:-quorum_dev_only}@postgres:5432/quorum
       FRONTEND_ORIGIN: ${PUBLIC_URL:-http://localhost}
-      # Set to "true" when TLS is enabled (HTTPS). Browsers reject Secure
-      # cookies over plain HTTP, which breaks the OIDC login flow.
+      # Set to "true" only when TLS is enabled. Browsers reject Secure cookies
+      # over plain HTTP, which breaks the OIDC login flow.
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
     depends_on:
       postgres:
@@ -72,10 +77,12 @@ services:
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
     volumes:
+      # HTTP-only config for local dev. Production uses nginx-prod.conf
+      # via docker-compose.prod.yml overlay.
       - ./deploy/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/docker/certs:/etc/nginx/certs:ro
+      # certbot_webroot is mounted even in HTTP mode so the ACME challenge
+      # works during the production TLS bootstrap step.
       - certbot_webroot:/var/www/certbot:ro
     depends_on:
       - web
