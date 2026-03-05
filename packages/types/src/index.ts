@@ -78,9 +78,16 @@ export interface DiscoursePost {
   postsCount: number;
   replyCount: number;
   views: number;
-  createdAt: string;      // ISO 8601
-  lastPostedAt: string;   // ISO 8601
-  url: string;            // https://forums.snomed.org/t/{slug}/{id}
+  createdAt: string;       // ISO 8601
+  lastPostedAt: string;    // ISO 8601
+  url: string;             // https://forums.snomed.org/t/{slug}/{id}
+  createdBy?: string;      // Discourse username of the original poster
+}
+
+// Sort order configuration for a hierarchy category grouping
+export interface HierarchyCategoryConfig {
+  name: string;
+  sortOrder: number;
 }
 
 // Admin: create/update space config payload

@@ -19,13 +19,13 @@ import {
   Info,
   RotateCcw,
 } from 'lucide-react';
-import type { SpaceConfig, SpaceSection, AuditLog } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type View = 'list' | 'space-form' | 'section-form' | 'audit-log';
+type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order';
 
 interface SpaceFormData {
   id: string;
@@ -146,6 +146,10 @@ export function AdminShell({ initialSpaces }: Props) {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
+  const [categoryConfigs, setCategoryConfigs] = useState<{ name: string; sortOrder: number | null }[]>([]);
+  const [savingCategories, setSavingCategories] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
@@ -175,6 +179,44 @@ export function AdminShell({ initialSpaces }: Props) {
       setLoadingLogs(false);
     }
   }, [showToast]);
+
+  const loadCategoryConfigs = useCallback(async () => {
+    setLoadingCategories(true);
+    try {
+      const res = await fetch('/api/admin/categories');
+      if (res.ok) {
+        const data = await res.json() as { name: string; sortOrder: number | null }[];
+        setCategoryConfigs(data);
+      }
+    } catch {
+      showToast('Failed to load category order.', 'error');
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, [showToast]);
+
+  async function saveCategoryOrder() {
+    setSavingCategories(true);
+    try {
+      const entries = categoryConfigs
+        .filter((c) => c.sortOrder !== null)
+        .map((c) => ({ name: c.name, sortOrder: c.sortOrder as number }));
+      const res = await fetch('/api/admin/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? 'Save failed');
+      }
+      showToast('Category order saved.', 'success');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setSavingCategories(false);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Space CRUD
@@ -670,6 +712,15 @@ export function AdminShell({ initialSpaces }: Props) {
           </button>
           <button
             onClick={() => {
+              setView('category-order');
+              loadCategoryConfigs();
+            }}
+            className={`pb-2 border-b-2 transition-all ${view === 'category-order' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
+          >
+            <h2 className="text-base font-semibold">Category Order</h2>
+          </button>
+          <button
+            onClick={() => {
               setView('audit-log');
               fetchAuditLogs();
             }}
@@ -722,6 +773,16 @@ export function AdminShell({ initialSpaces }: Props) {
               </button>
             </>
           )}
+          {view === 'category-order' && (
+            <button
+              onClick={saveCategoryOrder}
+              disabled={savingCategories}
+              className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors min-h-[44px] disabled:opacity-50"
+            >
+              <Save size={16} />
+              {savingCategories ? 'Saving…' : 'Save Order'}
+            </button>
+          )}
           {view === 'audit-log' && (
             <button
               onClick={fetchAuditLogs}
@@ -735,7 +796,47 @@ export function AdminShell({ initialSpaces }: Props) {
       </div>
 
       {
-        view === 'audit-log' ? (
+        view === 'category-order' ? (
+          <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-snomed-border bg-gray-50">
+              <p className="text-sm text-snomed-grey/60">
+                Set the display order for space groups on the Spaces page. Lower numbers appear first.
+                Leave a field blank to place that category after all numbered ones, sorted alphabetically.
+              </p>
+            </div>
+            {loadingCategories && categoryConfigs.length === 0 ? (
+              <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">Loading categories…</div>
+            ) : categoryConfigs.length === 0 ? (
+              <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">
+                No categories found. Add spaces with hierarchy categories first.
+              </div>
+            ) : (
+              <div className="divide-y divide-snomed-border">
+                {categoryConfigs.map((cat, i) => (
+                  <div key={cat.name} className="flex items-center gap-4 px-5 py-3">
+                    <div className="flex-1 text-sm font-medium text-snomed-grey">{cat.name}</div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-snomed-grey/50">Sort order</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={cat.sortOrder ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
+                          setCategoryConfigs((prev) =>
+                            prev.map((c, j) => j === i ? { ...c, sortOrder: val } : c),
+                          );
+                        }}
+                        placeholder="—"
+                        className="w-24 rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey text-right placeholder:text-snomed-grey/40 focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue transition-colors"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : view === 'audit-log' ? (
           <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">

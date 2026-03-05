@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -55,6 +55,22 @@ export interface SectionWithFiles {
  */
 export async function getAccessibleSpaces(cookie: string): Promise<SpaceConfig[]> {
   return bffFetch<SpaceConfig[]>('/documents', { cookie, next: { revalidate: 30 } });
+}
+
+/**
+ * Fetch category sort-order configs.
+ * Returns an empty array gracefully if no configs have been saved yet.
+ * Call from server components — pass the incoming cookie header.
+ */
+export async function getCategoryConfigs(cookie: string): Promise<HierarchyCategoryConfig[]> {
+  try {
+    return await bffFetch<HierarchyCategoryConfig[]>('/documents/categories', {
+      cookie,
+      next: { revalidate: 60 },
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -56,6 +56,7 @@ const MOCK_POSTS: DiscoursePost[] = [
     createdAt: "2025-01-15T09:00:00.000Z",
     lastPostedAt: "2025-02-10T14:22:00.000Z",
     url: `${DISCOURSE_BASE}/t/snomed-ct-release-schedule-2025-discussion/101`,
+    createdBy: "m.johnson",
   },
   {
     id: 102,
@@ -67,6 +68,7 @@ const MOCK_POSTS: DiscoursePost[] = [
     createdAt: "2025-02-01T11:30:00.000Z",
     lastPostedAt: "2025-02-20T08:45:00.000Z",
     url: `${DISCOURSE_BASE}/t/governance-review-proposed-changes-to-voting-procedures/102`,
+    createdBy: "s.patel",
   },
   {
     id: 103,
@@ -78,12 +80,23 @@ const MOCK_POSTS: DiscoursePost[] = [
     createdAt: "2024-12-01T08:00:00.000Z",
     lastPostedAt: "2024-12-05T10:15:00.000Z",
     url: `${DISCOURSE_BASE}/t/welcome-to-the-board-members-forum/103`,
+    createdBy: "admin",
   },
 ];
 
 // ---------------------------------------------------------------------------
 // Discourse API response shape (subset we care about)
 // ---------------------------------------------------------------------------
+
+interface RawUser {
+  id: number;
+  username: string;
+}
+
+interface RawPoster {
+  description: string; // e.g. "Original Poster", "Most Recent Poster"
+  user_id: number;
+}
 
 interface RawTopic {
   id: number;
@@ -94,9 +107,11 @@ interface RawTopic {
   views: number;
   created_at: string;
   last_posted_at: string;
+  posters?: RawPoster[];
 }
 
 interface DiscourseLatestResponse {
+  users?: RawUser[];
   topic_list?: {
     topics?: RawTopic[];
   };
@@ -159,15 +174,31 @@ export async function getDiscourseTopics(
 
   const topics: RawTopic[] = raw?.topic_list?.topics ?? [];
 
-  return topics.slice(0, limit).map((t) => ({
-    id: t.id,
-    title: t.title,
-    slug: t.slug,
-    postsCount: t.posts_count,
-    replyCount: t.reply_count,
-    views: t.views,
-    createdAt: t.created_at,
-    lastPostedAt: t.last_posted_at,
-    url: `${DISCOURSE_BASE}/t/${t.slug}/${t.id}`,
-  }));
+  // Build a user lookup from the top-level users array (Discourse puts all
+  // referenced users there rather than nesting them inside each topic).
+  const userMap = new Map<number, string>(
+    (raw?.users ?? []).map((u) => [u.id, u.username]),
+  );
+
+  return topics.slice(0, limit).map((t) => {
+    const originalPosterEntry = t.posters?.find((p) =>
+      p.description.includes("Original Poster"),
+    );
+    const createdBy = originalPosterEntry
+      ? userMap.get(originalPosterEntry.user_id)
+      : undefined;
+
+    return {
+      id: t.id,
+      title: t.title,
+      slug: t.slug,
+      postsCount: t.posts_count,
+      replyCount: t.reply_count,
+      views: t.views,
+      createdAt: t.created_at,
+      lastPostedAt: t.last_posted_at,
+      url: `${DISCOURSE_BASE}/t/${t.slug}/${t.id}`,
+      createdBy,
+    };
+  });
 }

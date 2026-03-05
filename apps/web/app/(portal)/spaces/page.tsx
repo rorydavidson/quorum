@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { FolderOpen } from 'lucide-react';
-import { getAccessibleSpaces } from '@/lib/api-client';
+import { getAccessibleSpaces, getCategoryConfigs } from '@/lib/api-client';
 import type { SpaceConfig } from '@snomed/types';
 
 export default async function SpacesPage() {
@@ -11,11 +11,22 @@ export default async function SpacesPage() {
   let spaces: SpaceConfig[] = [];
   let error: string | null = null;
 
-  try {
-    spaces = await getAccessibleSpaces(cookie);
-  } catch (err) {
-    error = (err as Error).message;
+  const [spacesResult, categoryConfigs] = await Promise.allSettled([
+    getAccessibleSpaces(cookie),
+    getCategoryConfigs(cookie),
+  ]);
+
+  if (spacesResult.status === 'fulfilled') {
+    spaces = spacesResult.value;
+  } else {
+    error = (spacesResult.reason as Error).message;
   }
+
+  const configuredOrder = new Map(
+    (categoryConfigs.status === 'fulfilled' ? categoryConfigs.value : []).map(
+      (c, i) => [c.name, c.sortOrder ?? i],
+    ),
+  );
 
   // Group by hierarchyCategory, preserving sort order within each group
   const grouped = spaces.reduce<Record<string, SpaceConfig[]>>((acc, space) => {
@@ -25,7 +36,15 @@ export default async function SpacesPage() {
     return acc;
   }, {});
 
-  const categories = Object.keys(grouped).sort();
+  // Sort categories: configured ones by sortOrder, unconfigured alphabetically at end
+  const categories = Object.keys(grouped).sort((a, b) => {
+    const aOrder = configuredOrder.get(a);
+    const bOrder = configuredOrder.get(b);
+    if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder;
+    if (aOrder !== undefined) return -1;
+    if (bOrder !== undefined) return 1;
+    return a.localeCompare(b);
+  });
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">

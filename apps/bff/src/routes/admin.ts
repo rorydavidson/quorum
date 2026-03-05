@@ -15,6 +15,8 @@ import {
   resetSite,
   createAuditLog,
   getAuditLogs,
+  getCategoryConfigs,
+  setCategoryConfigs,
 } from "../services/db.js";
 import { copyFileInDrive } from "../services/drive.js";
 
@@ -465,6 +467,73 @@ router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => 
   const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 100;
   const logs = await getAuditLogs(limit);
   res.json(logs);
+});
+
+// ---------------------------------------------------------------------------
+// Hierarchy Category Configs
+//
+// GET  /admin/categories
+//   Returns all configured category sort orders, merged with any category
+//   names currently in use by spaces that have no explicit config entry.
+//
+// PUT  /admin/categories
+//   Body: { entries: [{ name: string; sortOrder: number }] }
+//   Bulk-replaces all category sort order entries in one transaction.
+// ---------------------------------------------------------------------------
+
+const CategoryOrderSchema = z.object({
+  entries: z.array(
+    z.object({
+      name: z.string().min(1).max(200),
+      sortOrder: z.number().int().min(0),
+    }),
+  ),
+});
+
+router.get("/categories", async (_req: Request, res: Response): Promise<void> => {
+  const [configs, spaces] = await Promise.all([getCategoryConfigs(), getSpaces()]);
+
+  // Collect all category names currently used by spaces
+  const allNames = new Set<string>(spaces.map((s) => s.hierarchyCategory));
+
+  // Map configured entries by name for O(1) lookup
+  const configMap = new Map(configs.map((c) => [c.name, c.sortOrder]));
+
+  // Build merged list: configured entries keep their sortOrder;
+  // unconfigured names get sortOrder = null (displayed separately in admin UI)
+  const merged = Array.from(allNames).map((name) => ({
+    name,
+    sortOrder: configMap.get(name) ?? null,
+  }));
+
+  // Sort: configured ones first (by sortOrder), then unconfigured alphabetically
+  merged.sort((a, b) => {
+    if (a.sortOrder !== null && b.sortOrder !== null) return a.sortOrder - b.sortOrder;
+    if (a.sortOrder !== null) return -1;
+    if (b.sortOrder !== null) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  res.json(merged);
+});
+
+router.put("/categories", async (req: Request, res: Response): Promise<void> => {
+  const parsed = CategoryOrderSchema.safeParse(req.body);
+  if (!parsed.success) { zodError(res, parsed.error); return; }
+
+  await setCategoryConfigs(parsed.data.entries);
+
+  const user = req.session.user!;
+  await createAuditLog({
+    userId: user.sub,
+    userName: user.name,
+    action: "UPDATE_CATEGORY_ORDER",
+    entityType: "CATEGORY",
+    entityId: "ALL",
+    details: JSON.stringify(parsed.data.entries),
+  });
+
+  res.json({ message: "Category order saved." });
 });
 
 export default router;

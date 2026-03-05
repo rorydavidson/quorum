@@ -4,6 +4,7 @@ import {
   SpaceSection,
   EventMetadata,
   AuditLog,
+  HierarchyCategoryConfig,
 } from "@snomed/types";
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,15 @@ export async function runMigrations(): Promise<void> {
       t.text("details").nullable(); // JSON
     });
     console.log("[db] Created audit_logs table");
+  }
+
+  const hasCategoryConfigs = await db.schema.hasTable("hierarchy_category_configs");
+  if (!hasCategoryConfigs) {
+    await db.schema.createTable("hierarchy_category_configs", (t) => {
+      t.string("name").primary();
+      t.integer("sort_order").notNullable().defaultTo(0);
+    });
+    console.log("[db] Created hierarchy_category_configs table");
   }
 }
 
@@ -388,18 +398,21 @@ export interface SiteBackup {
   timestamp: string;
   spaces: SpaceConfig[];
   eventMetadata: EventMetadata[];
+  categoryConfigs?: HierarchyCategoryConfig[];
 }
 
 export async function getBackup(): Promise<SiteBackup> {
   const spaces = await getSpaces();
   const eventMetadataRows = await db<EventMetadataRow>("event_metadata");
   const eventMetadata = eventMetadataRows.map(rowToEventMetadata);
+  const categoryConfigs = await getCategoryConfigs();
 
   return {
     version: 1,
     timestamp: new Date().toISOString(),
     spaces,
     eventMetadata,
+    categoryConfigs,
   };
 }
 
@@ -452,6 +465,17 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         await trx("event_metadata").insert(row);
       }
     }
+
+    // 4. Restore category configs
+    await trx("hierarchy_category_configs").delete();
+    if (backup.categoryConfigs?.length) {
+      for (const config of backup.categoryConfigs) {
+        await trx("hierarchy_category_configs").insert({
+          name: config.name,
+          sort_order: config.sortOrder,
+        });
+      }
+    }
   });
 }
 
@@ -460,6 +484,7 @@ export async function resetSite(): Promise<void> {
     await trx("event_metadata").delete();
     await trx("space_sections").delete();
     await trx("spaces").delete();
+    await trx("hierarchy_category_configs").delete();
   });
 }
 
@@ -493,6 +518,40 @@ export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
     entityId: r.entity_id,
     details: r.details,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchy Category Configs
+// ---------------------------------------------------------------------------
+
+interface CategoryConfigRow {
+  name: string;
+  sort_order: number;
+}
+
+/** Returns all configured category sort orders, ordered by sort_order ascending. */
+export async function getCategoryConfigs(): Promise<HierarchyCategoryConfig[]> {
+  const rows = await db<CategoryConfigRow>("hierarchy_category_configs").orderBy(
+    "sort_order",
+  );
+  return rows.map((r) => ({ name: r.name, sortOrder: r.sort_order }));
+}
+
+/**
+ * Bulk-replaces all category sort order entries.
+ * Entries not present in the new list are removed.
+ */
+export async function setCategoryConfigs(
+  entries: HierarchyCategoryConfig[],
+): Promise<void> {
+  await db.transaction(async (trx) => {
+    await trx("hierarchy_category_configs").delete();
+    if (entries.length > 0) {
+      await trx("hierarchy_category_configs").insert(
+        entries.map((e) => ({ name: e.name, sort_order: e.sortOrder })),
+      );
+    }
+  });
 }
 
 export default db;

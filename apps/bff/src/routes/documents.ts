@@ -10,7 +10,7 @@ import fs from "fs";
 import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { getSpaces, getSpaceById, getSectionById, createAuditLog } from "../services/db.js";
+import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder } from "../services/drive.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
@@ -86,6 +86,16 @@ export function userCanAccessSpace(
 export function isAdminUser(groups: string[]): boolean {
   return groups.some((g) => g === "portal_admin" || g === "/portal_admin");
 }
+
+// ---------------------------------------------------------------------------
+// GET /documents/categories — category sort-order config (auth required, no admin needed)
+// Used by the spaces listing page to order category sections correctly.
+// ---------------------------------------------------------------------------
+
+router.get("/categories", asyncHandler(async (_req, res) => {
+  const configs = await getCategoryConfigs();
+  res.json(configs);
+}));
 
 // ---------------------------------------------------------------------------
 // GET /documents — list all spaces the user can access
