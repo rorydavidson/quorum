@@ -47,9 +47,9 @@ export interface AuthParams {
   authorizationUrl: string;
 }
 
-export function buildAuthParams(): AuthParams {
-  const state = generators.state();
-  const nonce = generators.nonce();
+export function buildAuthParams(existingState?: string, existingNonce?: string): AuthParams {
+  const state = existingState ?? generators.state();
+  const nonce = existingNonce ?? generators.nonce();
   const authorizationUrl = getClient().authorizationUrl({
     scope: 'openid profile email',
     state,
