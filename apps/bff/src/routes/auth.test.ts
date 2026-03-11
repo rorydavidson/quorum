@@ -144,23 +144,19 @@ describe("GET /auth/callback", () => {
   });
 
   it("redirects to /dashboard on successful token exchange", async () => {
-    const app = await createApp({
-      oauthState: MOCK_STATE,
-      oauthNonce: MOCK_NONCE,
-    });
-    const res = await request(app).get(
-      `/auth/callback?code=auth-code&state=${MOCK_STATE}`,
-    );
+    const app = await createApp();
+    const res = await request(app)
+      .get(`/auth/callback?code=auth-code&state=${MOCK_STATE}`)
+      .set("Cookie", `oauth_state=${MOCK_STATE}; oauth_nonce=${MOCK_NONCE}`);
     expect(res.status).toBe(302);
     expect(res.header.location).toMatch(/\/dashboard$/);
   });
 
   it("calls exchangeCodeForTokens with the callback URL and session state", async () => {
-    const app = await createApp({
-      oauthState: MOCK_STATE,
-      oauthNonce: MOCK_NONCE,
-    });
-    await request(app).get(`/auth/callback?code=auth-code&state=${MOCK_STATE}`);
+    const app = await createApp();
+    await request(app)
+      .get(`/auth/callback?code=auth-code&state=${MOCK_STATE}`)
+      .set("Cookie", `oauth_state=${MOCK_STATE}; oauth_nonce=${MOCK_NONCE}`);
     expect(mockExchangeCodeForTokens).toHaveBeenCalledWith(
       expect.stringContaining("/auth/callback"),
       MOCK_STATE,
@@ -170,13 +166,10 @@ describe("GET /auth/callback", () => {
 
   it("returns 500 when exchangeCodeForTokens throws", async () => {
     mockExchangeCodeForTokens.mockRejectedValueOnce(new Error("invalid state"));
-    const app = await createApp({
-      oauthState: MOCK_STATE,
-      oauthNonce: MOCK_NONCE,
-    });
-    const res = await request(app).get(
-      `/auth/callback?code=bad&state=${MOCK_STATE}`,
-    );
+    const app = await createApp();
+    const res = await request(app)
+      .get(`/auth/callback?code=bad&state=${MOCK_STATE}`)
+      .set("Cookie", `oauth_state=${MOCK_STATE}; oauth_nonce=${MOCK_NONCE}`);
     expect(res.status).toBe(500);
     expect(res.body.code).toBe("AUTH_ERROR");
   });

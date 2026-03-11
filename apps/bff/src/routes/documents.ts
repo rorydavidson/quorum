@@ -394,6 +394,16 @@ router.post(
       // Create a read stream from the temp file on disk
       const stream = fs.createReadStream(file.path);
 
+      // Register the error handler before any async work. libuv's lazy open
+      // can fire after the temp file is unlinked — whether the upload succeeds
+      // or throws — and without this handler the ENOENT becomes an uncaught
+      // exception that fails the process.
+      stream.on("error", (err) => {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.error("[documents] Unexpected stream error:", err);
+        }
+      });
+
       const driveFile = await uploadFile(
         targetFolderId,
         file.originalname,
@@ -402,14 +412,6 @@ router.post(
         file.size,
       );
 
-      // The upload succeeded: suppress any ENOENT that fires when libuv's async
-      // `open` callback arrives after the temp file has been unlinked. Without
-      // this handler the error would become an uncaught exception.
-      stream.on("error", (err) => {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-          console.error("[documents] Unexpected stream error after upload:", err);
-        }
-      });
       stream.destroy();
 
       // Clean up the temp file after upload
