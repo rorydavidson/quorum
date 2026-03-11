@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import { getUser } from '@/lib/auth';
 import { getUpcomingEvents, getAccessibleSpaces } from '@/lib/api-client';
 import { CalendarWidget } from '@/components/calendar/CalendarWidget';
+import { Greeting } from '@/components/Greeting';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,9 +46,7 @@ export default async function DashboardPage() {
 
       {/* Welcome header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-snomed-grey">
-          Good morning, {firstName}
-        </h1>
+        <Greeting firstName={firstName} />
         <p className="mt-1 text-sm text-snomed-grey/60">
           Here&apos;s what&apos;s coming up across your spaces.
         </p>
