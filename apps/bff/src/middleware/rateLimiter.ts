@@ -20,7 +20,7 @@ export const globalLimiter = rateLimit({
 
 export const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: envInt("RATE_LIMIT_AUTH", 10),
+  max: envInt("RATE_LIMIT_AUTH", 30),
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => isTest,

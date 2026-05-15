@@ -66,7 +66,7 @@ BFF / Backend-for-Frontend (port 3001)
 - **Header Encoding**: User metadata (name, email, groups) is Base64 encoded when passed from the Next.js middleware to the BFF. This prevents header-injection vulnerabilities and safely handles Unicode/special characters in user names.
 - **Unified Error Handling**: A global JSON error handler in the BFF ensures that all API failures return consistent, helpful responses to the frontend.
 - **Proxy Body Integrity**: Next.js API routes use `duplex: 'half'` streaming for POST requests, ensuring multipart/form-data (uploads) is forwarded correctly without corruption.
-- **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 10 req/min for auth and uploads, 20 req/min for search). Responses include standard `RateLimit-*` headers.
+- **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 30 req/min for auth, 20 req/min for search, 10 req/min for uploads). Responses include standard `RateLimit-*` headers.
 - **CSRF Protection**: State-changing endpoints (`/documents`, `/admin`, `/events`) require a `x-csrf-token` header on POST/PUT/DELETE requests. The frontend fetches a per-session token from `GET /csrf-token` and includes it in mutating requests.
 - **Folder Ancestry Verification**: User-supplied `folderId` parameters are validated against the space's Drive folder tree to prevent cross-space document access (IDOR protection). File downloads and deletions also verify the file belongs to the authorised space.
 
@@ -366,7 +366,7 @@ DISCOURSE_URL=https://forums.snomed.org
 
 # ── Rate Limiting (requests per minute per IP, defaults shown) ───────────────
 # RATE_LIMIT_GLOBAL=100
-# RATE_LIMIT_AUTH=10
+# RATE_LIMIT_AUTH=30
 # RATE_LIMIT_SEARCH=20
 # RATE_LIMIT_UPLOAD=10
 
@@ -791,6 +791,6 @@ curl http://127.0.0.1:3001/health
 - **Header Integrity**: User metadata is Base64 encoded in internal headers to prevent injection and safely handle special characters.
 - **Google Doc Proxying**: Google Docs linked to events are exported as PDF by the BFF, bypassing firewall restrictions for users unable to access Google domains.
 - **CSRF Tokens**: All state-changing requests to `/documents`, `/admin`, and `/events` require a valid `x-csrf-token` header. Tokens are per-session and retrieved via `GET /csrf-token`. GET/HEAD/OPTIONS requests are exempt.
-- **Rate Limiting**: Per-IP rate limits protect against automated abuse. Limits are applied globally (100/min) and with tighter thresholds on auth (10/min), search (20/min), and upload (10/min) endpoints. Rate-limited requests receive a `429 Too Many Requests` response.
+- **Rate Limiting**: Per-IP rate limits protect against automated abuse. Limits are applied globally (100/min) and with tighter thresholds on auth (30/min), search (20/min), and upload (10/min) endpoints. Rate-limited requests receive a `429 Too Many Requests` response.
 - **Folder/File Ancestry Verification**: When a user supplies a `folderId` query parameter, the BFF walks the Google Drive parent chain to verify the folder is a descendant of the space's configured root folder. File downloads and deletions similarly verify file ownership. This prevents authenticated users from accessing documents in spaces they are not authorised for.
 - **Session Store Safety**: In production, sessions are stored in PostgreSQL. If `DATABASE_URL` is not a PostgreSQL connection string, the BFF logs a warning about falling back to the in-memory session store (which does not scale and loses sessions on restart).
