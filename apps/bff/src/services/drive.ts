@@ -413,6 +413,61 @@ export async function deleteFile(fileId: string): Promise<void> {
 }
 
 /**
+ * Verify that `folderId` is a descendant of (or equal to) `rootFolderId`
+ * by walking the parents chain. Returns true if the ancestry is confirmed.
+ * Protects against IDOR where a user supplies an arbitrary Drive folder ID
+ * to access files outside their authorised space.
+ */
+export async function verifyFolderAncestry(
+  folderId: string,
+  rootFolderId: string,
+): Promise<boolean> {
+  if (folderId === rootFolderId) return true;
+  if (isMockMode()) return true;
+
+  const MAX_DEPTH = 15;
+  let currentId = folderId;
+
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    const res = await drive().files.get({
+      fileId: currentId,
+      fields: "parents",
+      supportsAllDrives: true,
+    });
+
+    const parents = res.data.parents;
+    if (!parents || parents.length === 0) return false;
+
+    if (parents.includes(rootFolderId)) return true;
+    currentId = parents[0];
+  }
+
+  return false;
+}
+
+/**
+ * Verify that a file belongs to the folder tree rooted at `rootFolderId`.
+ * Gets the file's immediate parent and then walks up the ancestry chain.
+ */
+export async function verifyFileAncestry(
+  fileId: string,
+  rootFolderId: string,
+): Promise<boolean> {
+  if (isMockMode()) return true;
+
+  const res = await drive().files.get({
+    fileId,
+    fields: "parents",
+    supportsAllDrives: true,
+  });
+
+  const parents = res.data.parents;
+  if (!parents || parents.length === 0) return false;
+
+  return verifyFolderAncestry(parents[0], rootFolderId);
+}
+
+/**
  * Check whether the Drive service is reachable (used at startup).
  */
 export async function checkDriveAccess(): Promise<boolean> {
