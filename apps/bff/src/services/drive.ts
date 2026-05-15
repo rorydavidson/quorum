@@ -1,6 +1,21 @@
 import { google } from "googleapis";
 import type { DriveFile } from "@snomed/types";
 import { Readable } from "stream";
+import { TtlCache } from "../utils/ttlCache.js";
+
+function envInt(key: string, fallback: number): number {
+  const val = process.env[key];
+  if (!val) return fallback;
+  const parsed = parseInt(val, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const ancestryTtl = envInt("CACHE_TTL_DRIVE_ANCESTRY", 300);
+const listTtl = envInt("CACHE_TTL_DRIVE_LIST", 60);
+
+const parentCache = new TtlCache<string | null>(ancestryTtl, 2000);
+const listFilesCache = new TtlCache<DriveFile[]>(listTtl, 500);
+const ancestryCache = new TtlCache<boolean>(ancestryTtl, 2000);
 
 // ---------------------------------------------------------------------------
 // Google Drive client — Service Account credentials
@@ -142,6 +157,9 @@ const MOCK_PDF_BYTES = Buffer.from(
 export async function listFiles(_folderId: string): Promise<DriveFile[]> {
   if (isMockMode()) return MOCK_FILES;
 
+  const cached = listFilesCache.get(_folderId);
+  if (cached) return cached;
+
   const res = await drive().files.list({
     q: `'${_folderId}' in parents and trashed = false`,
     fields:
@@ -152,7 +170,9 @@ export async function listFiles(_folderId: string): Promise<DriveFile[]> {
     includeItemsFromAllDrives: true,
   });
 
-  return (res.data.files ?? []).map(mapFile);
+  const files = (res.data.files ?? []).map(mapFile);
+  listFilesCache.set(_folderId, files);
+  return files;
 }
 
 /**
@@ -298,6 +318,7 @@ export async function uploadFile(
     fields: "id, name, mimeType, size, createdTime, modifiedTime, webViewLink",
   });
 
+  listFilesCache.invalidate(folderId);
   return mapFile(res.data);
 }
 
@@ -393,6 +414,7 @@ export async function createFolder(
     fields: "id, name, mimeType, createdTime, modifiedTime, webViewLink",
   });
 
+  listFilesCache.invalidate(parentFolderId);
   return mapFile(res.data);
 }
 
@@ -403,6 +425,12 @@ export async function createFolder(
 export async function deleteFile(fileId: string): Promise<void> {
   if (isMockMode()) return;
 
+  const meta = await drive().files.get({
+    fileId,
+    fields: "parents",
+    supportsAllDrives: true,
+  });
+
   await drive().files.update({
     fileId,
     requestBody: {
@@ -410,6 +438,12 @@ export async function deleteFile(fileId: string): Promise<void> {
     },
     supportsAllDrives: true,
   });
+
+  // Invalidate the parent folder's listing cache
+  const parents = meta.data.parents;
+  if (parents) {
+    for (const p of parents) listFilesCache.invalidate(p);
+  }
 }
 
 /**
@@ -425,23 +459,46 @@ export async function verifyFolderAncestry(
   if (folderId === rootFolderId) return true;
   if (isMockMode()) return true;
 
+  const cacheKey = `${folderId}:${rootFolderId}`;
+  const cached = ancestryCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const MAX_DEPTH = 15;
   let currentId = folderId;
 
   for (let i = 0; i < MAX_DEPTH; i++) {
-    const res = await drive().files.get({
-      fileId: currentId,
-      fields: "parents",
-      supportsAllDrives: true,
-    });
+    // Check parent cache before hitting the API
+    let parentId = parentCache.get(currentId);
+    if (parentId === undefined) {
+      const res = await drive().files.get({
+        fileId: currentId,
+        fields: "parents",
+        supportsAllDrives: true,
+      });
 
-    const parents = res.data.parents;
-    if (!parents || parents.length === 0) return false;
+      const parents = res.data.parents;
+      if (!parents || parents.length === 0) {
+        parentCache.set(currentId, null);
+        ancestryCache.set(cacheKey, false);
+        return false;
+      }
+      parentId = parents[0];
+      parentCache.set(currentId, parentId);
+    }
 
-    if (parents.includes(rootFolderId)) return true;
-    currentId = parents[0];
+    if (parentId === null) {
+      ancestryCache.set(cacheKey, false);
+      return false;
+    }
+
+    if (parentId === rootFolderId) {
+      ancestryCache.set(cacheKey, true);
+      return true;
+    }
+    currentId = parentId;
   }
 
+  ancestryCache.set(cacheKey, false);
   return false;
 }
 
@@ -455,16 +512,26 @@ export async function verifyFileAncestry(
 ): Promise<boolean> {
   if (isMockMode()) return true;
 
-  const res = await drive().files.get({
-    fileId,
-    fields: "parents",
-    supportsAllDrives: true,
-  });
+  let parentId = parentCache.get(fileId);
+  if (parentId === undefined) {
+    const res = await drive().files.get({
+      fileId,
+      fields: "parents",
+      supportsAllDrives: true,
+    });
 
-  const parents = res.data.parents;
-  if (!parents || parents.length === 0) return false;
+    const parents = res.data.parents;
+    if (!parents || parents.length === 0) {
+      parentCache.set(fileId, null);
+      return false;
+    }
+    parentId = parents[0];
+    parentCache.set(fileId, parentId);
+  }
 
-  return verifyFolderAncestry(parents[0], rootFolderId);
+  if (parentId === null) return false;
+
+  return verifyFolderAncestry(parentId, rootFolderId);
 }
 
 /**
