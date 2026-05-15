@@ -2,9 +2,11 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Folder } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
-import { getSectionFiles, getUserFromHeaders } from '@/lib/api-client';
+import { getSectionFiles, getAuthoredDocuments, getUserFromHeaders } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
+import { SectionAuthoredDocs } from '@/components/editor/SectionAuthoredDocs';
 import type { SectionWithFiles } from '@/lib/api-client';
+import type { PortalDocument } from '@snomed/types';
 
 interface Props {
   params: Promise<{ spaceId: string; sectionId: string }>;
@@ -19,10 +21,16 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
   const user = getUserFromHeaders(headerStore);
 
   let data: SectionWithFiles | null = null;
+  let authoredDocs: PortalDocument[] = [];
   let error: string | null = null;
 
   try {
-    data = await getSectionFiles(spaceId, sectionId, cookie, folderId);
+    const [sectionData, allDocs] = await Promise.all([
+      getSectionFiles(spaceId, sectionId, cookie, folderId),
+      getAuthoredDocuments(spaceId, cookie).catch(() => [] as PortalDocument[]),
+    ]);
+    data = sectionData;
+    authoredDocs = allDocs.filter((d) => d.sectionId === sectionId);
   } catch (err) {
     error = (err as Error).message;
   }
@@ -79,10 +87,15 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
           <div className="mb-3">
             <p className="text-xs text-snomed-grey/50">
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
+              {authoredDocs.length > 0 && ` · ${authoredDocs.length} authored`}
             </p>
           </div>
           <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} />
         </>
+      )}
+
+      {authoredDocs.length > 0 && (
+        <SectionAuthoredDocs documents={authoredDocs} spaceId={spaceId} />
       )}
     </div>
   );

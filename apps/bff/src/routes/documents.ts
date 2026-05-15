@@ -13,6 +13,7 @@ import { asyncHandler } from "../middleware/asyncHandler.js";
 import { uploadLimiter } from "../middleware/rateLimiter.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
+import { userCanAccessSpace, isAdminUser, userCanUpload } from "../utils/auth-helpers.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -65,28 +66,8 @@ const router: IRouter = Router();
 // All document routes require an active session
 router.use(requireAuth);
 
-// ---------------------------------------------------------------------------
-// Helper: check whether the session user belongs to a space's keycloak group
-// ---------------------------------------------------------------------------
-
-export function userCanAccessSpace(
-  userGroups: string[],
-  spaceGroup: string,
-  isAdmin: boolean,
-): boolean {
-  if (isAdmin) return true;
-  // Keycloak groups can be bare ("board-members") or path-prefixed ("/board-members")
-  return userGroups.some(
-    (g) =>
-      g === spaceGroup ||
-      g === spaceGroup.replace(/^\//, "") ||
-      `/${g}` === spaceGroup,
-  );
-}
-
-export function isAdminUser(groups: string[]): boolean {
-  return groups.some((g) => g === "portal_admin" || g === "/portal_admin");
-}
+// Re-export auth helpers for backward compatibility
+export { userCanAccessSpace, isAdminUser, userCanUpload } from "../utils/auth-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helper: validate a user-supplied Drive folder ID
@@ -360,19 +341,6 @@ function uploadSingle(req: Request, res: Response, next: NextFunction): void {
     }
     next();
   });
-}
-
-export function userCanUpload(
-  userGroups: string[],
-  uploadGroups: string[],
-  isAdmin: boolean,
-): boolean {
-  if (isAdmin) return true;
-  return uploadGroups.some((g) =>
-    userGroups.some(
-      (ug) => ug === g || ug === g.replace(/^\//, "") || `/${ug}` === g,
-    ),
-  );
 }
 
 router.post(
