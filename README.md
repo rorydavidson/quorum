@@ -59,11 +59,16 @@ BFF / Backend-for-Frontend (port 3001)
 - **Streaming File Proxying**: File downloads and uploads are streamed directly through the BFF to the browser. This ensures high memory efficiency even for large documents, as the server never buffers the entire file.
 - **Lazy Component Loading**: Large client-side components like the `react-pdf` viewer are dynamically imported, significantly reducing the initial page load for the dashboard and search views.
 - **Optimized Search**: Uses Google Drive's native `fullText` search capabilities combined with indexed database metadata for fast, comprehensive results.
+- **Drive API Caching**: File listings are cached with a 60-second TTL, and folder parent-chain lookups (used for ancestry verification) are cached for 5 minutes. Caches are automatically invalidated on upload, folder creation, and file deletion. This reduces Drive API quota usage by orders of magnitude under concurrent load.
+- **Database Connection Pool**: PostgreSQL pool is sized for up to 250 concurrent users (min 2, max 25 connections).
 
 ### Security & Reliability
 - **Header Encoding**: User metadata (name, email, groups) is Base64 encoded when passed from the Next.js middleware to the BFF. This prevents header-injection vulnerabilities and safely handles Unicode/special characters in user names.
 - **Unified Error Handling**: A global JSON error handler in the BFF ensures that all API failures return consistent, helpful responses to the frontend.
 - **Proxy Body Integrity**: Next.js API routes use `duplex: 'half'` streaming for POST requests, ensuring multipart/form-data (uploads) is forwarded correctly without corruption.
+- **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 10 req/min for auth and uploads, 20 req/min for search). Responses include standard `RateLimit-*` headers.
+- **CSRF Protection**: State-changing endpoints (`/documents`, `/admin`, `/events`) require a `x-csrf-token` header on POST/PUT/DELETE requests. The frontend fetches a per-session token from `GET /csrf-token` and includes it in mutating requests.
+- **Folder Ancestry Verification**: User-supplied `folderId` parameters are validated against the space's Drive folder tree to prevent cross-space document access (IDOR protection). File downloads and deletions also verify the file belongs to the authorised space.
 
 ---
 
@@ -133,8 +138,13 @@ quorum/
 │           │   ├── forum.ts     # Discourse topics by spaceId or aggregate
 │           │   ├── search.ts    # Unified Drive + calendar search
 │           │   └── admin.ts     # CRUD + Audit retrieval + Backup/Restore
+│           ├── middleware/
+│           │   ├── rateLimiter.ts  # Per-endpoint rate limiting
+│           │   └── csrf.ts        # CSRF token generation & validation
+│           ├── utils/
+│           │   └── ttlCache.ts    # TTL cache for Drive API responses
 │           └── services/
-│               ├── drive.ts     # Google Drive Service Account client
+│               ├── drive.ts     # Google Drive Service Account client (with caching)
 │               ├── discourse.ts # Discourse public API client (mock-aware)
 │               ├── db.ts        # Knex migrations & Audit Log service
 │
@@ -353,6 +363,19 @@ DISCOURSE_URL=https://forums.snomed.org
 #
 # DISCOURSE_API_KEY=<paste key from step 2>
 # DISCOURSE_API_USERNAME=quorum-system   # must match the Discourse username exactly (case-sensitive)
+
+# ── Rate Limiting (requests per minute per IP, defaults shown) ───────────────
+# RATE_LIMIT_GLOBAL=100
+# RATE_LIMIT_AUTH=10
+# RATE_LIMIT_SEARCH=20
+# RATE_LIMIT_UPLOAD=10
+
+# ── Cache TTLs (seconds, defaults shown) ─────────────────────────────────────
+# CACHE_TTL_DRIVE_LIST=60        # file listing cache
+# CACHE_TTL_DRIVE_ANCESTRY=300   # folder ancestry verification cache
+
+# ── Database Pool ────────────────────────────────────────────────────────────
+# DB_POOL_MAX=25                 # max PostgreSQL connections
 ```
 
 ### `apps/web/.env.local`
@@ -767,3 +790,7 @@ curl http://127.0.0.1:3001/health
 - **RBAC Enforcement**: Permissions (Read, Upload, Admin) are validated at the BFF layer using the signed `groups` claim.
 - **Header Integrity**: User metadata is Base64 encoded in internal headers to prevent injection and safely handle special characters.
 - **Google Doc Proxying**: Google Docs linked to events are exported as PDF by the BFF, bypassing firewall restrictions for users unable to access Google domains.
+- **CSRF Tokens**: All state-changing requests to `/documents`, `/admin`, and `/events` require a valid `x-csrf-token` header. Tokens are per-session and retrieved via `GET /csrf-token`. GET/HEAD/OPTIONS requests are exempt.
+- **Rate Limiting**: Per-IP rate limits protect against automated abuse. Limits are applied globally (100/min) and with tighter thresholds on auth (10/min), search (20/min), and upload (10/min) endpoints. Rate-limited requests receive a `429 Too Many Requests` response.
+- **Folder/File Ancestry Verification**: When a user supplies a `folderId` query parameter, the BFF walks the Google Drive parent chain to verify the folder is a descendant of the space's configured root folder. File downloads and deletions similarly verify file ownership. This prevents authenticated users from accessing documents in spaces they are not authorised for.
+- **Session Store Safety**: In production, sessions are stored in PostgreSQL. If `DATABASE_URL` is not a PostgreSQL connection string, the BFF logs a warning about falling back to the in-memory session store (which does not scale and loses sessions on restart).

@@ -24,7 +24,10 @@ const db = isPostgresDb
   ? Knex({
       client: "pg",
       connection: databaseUrl,
-      pool: { min: 2, max: 10 },
+      pool: {
+        min: 2,
+        max: parseInt(process.env.DB_POOL_MAX ?? "25", 10) || 25,
+      },
     })
   : Knex({
       client: "better-sqlite3",

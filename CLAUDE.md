@@ -119,6 +119,9 @@ Danger:         #DC2626   (errors, destructive actions)
 8. **Input validation:** All admin form inputs validated with Zod on BFF before DB write.
 9. **No CORS wildcards:** BFF CORS origin locked to Next.js origin only.
 10. **No sensitive data in Next.js `NEXT_PUBLIC_` env vars.**
+11. **CSRF tokens required** on POST/PUT/DELETE to `/documents`, `/admin`, `/events`. Frontend must fetch token from `GET /csrf-token` and send it as `x-csrf-token` header.
+12. **Rate limiting** applied globally (100 req/min) and per-endpoint (auth 10/min, search 20/min, upload 10/min).
+13. **Folder ancestry verification:** User-supplied `folderId` params are verified against the space's Drive folder tree before use. File downloads/deletes also verify file ownership.
 
 ---
 

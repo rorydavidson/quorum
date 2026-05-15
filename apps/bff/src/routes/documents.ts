@@ -10,6 +10,7 @@ import fs from "fs";
 import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { uploadLimiter } from "../middleware/rateLimiter.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
 
@@ -376,6 +377,7 @@ export function userCanUpload(
 
 router.post(
   "/:spaceId/upload",
+  uploadLimiter,
   uploadSingle,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.session.user!;

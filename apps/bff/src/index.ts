@@ -16,6 +16,8 @@ import calendarRouter from "./routes/calendar.js";
 import searchRouter from "./routes/search.js";
 import eventsRouter from "./routes/events.js";
 import forumRouter from "./routes/forum.js";
+import { globalLimiter, authLimiter, searchLimiter } from "./middleware/rateLimiter.js";
+import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 
 // ---------------------------------------------------------------------------
 // Environment validation — fail fast before binding any port
@@ -62,7 +64,15 @@ app.use(
 
 // Build session store: PostgreSQL-backed in production, in-memory in dev
 function buildSessionStore(): session.Store | undefined {
-  if (!isPostgresDb) return undefined; // dev: express-session MemoryStore
+  if (!isPostgresDb) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[startup] WARNING: No PostgreSQL DATABASE_URL configured — using in-memory session store. " +
+          "Sessions will be lost on restart and cannot scale across instances.",
+      );
+    }
+    return undefined;
+  }
   const PgStore = connectPgSimple(session);
   return new PgStore({
     conString: process.env.DATABASE_URL,
@@ -96,6 +106,26 @@ app.use(
 );
 
 // ---------------------------------------------------------------------------
+// CSRF protection — initialise token in session, verify on state-changing routes
+// ---------------------------------------------------------------------------
+
+app.use(csrfToken);
+
+app.get("/csrf-token", (req, res) => {
+  res.json({ token: req.session._csrfSecret });
+});
+
+app.use("/documents", csrfProtection);
+app.use("/admin", csrfProtection);
+app.use("/events", csrfProtection);
+
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+
+app.use(globalLimiter);
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -118,11 +148,11 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-app.use("/auth", authRouter);
+app.use("/auth", authLimiter, authRouter);
 app.use("/documents", documentsRouter);
 app.use("/admin", adminRouter);
 app.use("/calendar", calendarRouter);
-app.use("/search", searchRouter);
+app.use("/search", searchLimiter, searchRouter);
 app.use("/events", eventsRouter);
 app.use("/forum", forumRouter);
 

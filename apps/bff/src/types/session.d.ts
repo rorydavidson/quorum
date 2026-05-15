@@ -10,5 +10,7 @@ declare module 'express-session' {
     oauthNonce: string;
     /** Opaque refresh token — never sent to browser */
     refreshToken: string;
+    /** CSRF secret — generated per session, never sent to browser directly */
+    _csrfSecret: string;
   }
 }
