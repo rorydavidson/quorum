@@ -143,7 +143,6 @@ export default async function SpaceLandingPage({ params }: Props) {
   let error: string | null = null;
   let upcomingEvents: CalendarEvent[] = [];
   let forumTopics: DiscoursePost[] = [];
-
   const [spaceResult, eventsResult, forumResult] = await Promise.allSettled([
     getSpaceFiles(spaceId, cookie),
     getSpaceEvents(spaceId, cookie, 5, 90),

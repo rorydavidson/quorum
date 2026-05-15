@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig, PortalDocument, DocumentVersion, DocumentType } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -382,6 +382,179 @@ export async function createFolderInSpace(
   }
 
   return res.json() as Promise<DriveFile>;
+}
+
+// ---------------------------------------------------------------------------
+// Authored Documents
+// ---------------------------------------------------------------------------
+
+export async function getAuthoredDocuments(
+  spaceId: string,
+  cookie: string,
+): Promise<PortalDocument[]> {
+  return bffFetch<PortalDocument[]>(`/authored-docs/${spaceId}`, {
+    cookie,
+    cache: 'no-store',
+  });
+}
+
+export async function getAuthoredDocument(
+  spaceId: string,
+  docId: string,
+  cookie: string,
+): Promise<PortalDocument> {
+  return bffFetch<PortalDocument>(`/authored-docs/${spaceId}/${docId}`, {
+    cookie,
+    cache: 'no-store',
+  });
+}
+
+export async function createAuthoredDocument(
+  spaceId: string,
+  title: string,
+  docType: DocumentType,
+  sectionId?: string,
+): Promise<PortalDocument> {
+  const res = await fetch(`/api/authored-docs/${spaceId}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, docType, sectionId: sectionId || undefined }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Create failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Create failed');
+  }
+  return res.json() as Promise<PortalDocument>;
+}
+
+export async function moveDocumentToSection(
+  spaceId: string,
+  docId: string,
+  sectionId: string | null,
+): Promise<PortalDocument> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sectionId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Move failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Move failed');
+  }
+  return res.json() as Promise<PortalDocument>;
+}
+
+export async function saveDocumentContent(
+  spaceId: string,
+  docId: string,
+  content: string,
+  contentHtml: string,
+  title?: string,
+): Promise<PortalDocument> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content, contentHtml, title }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Save failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Save failed');
+  }
+  return res.json() as Promise<PortalDocument>;
+}
+
+export async function updateDocumentStatus(
+  spaceId: string,
+  docId: string,
+  status: string,
+): Promise<PortalDocument> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}/status`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Status update failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Status update failed');
+  }
+  return res.json() as Promise<PortalDocument>;
+}
+
+export async function deleteAuthoredDocument(
+  spaceId: string,
+  docId: string,
+): Promise<void> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Delete failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Delete failed');
+  }
+}
+
+export async function acquireDocumentLock(
+  spaceId: string,
+  docId: string,
+): Promise<{ locked: boolean }> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}/lock`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Lock failed' })) as { error?: string; lockedBy?: string };
+    throw new Error(err.error ?? 'Lock failed');
+  }
+  return res.json() as Promise<{ locked: boolean }>;
+}
+
+export async function releaseDocumentLock(
+  spaceId: string,
+  docId: string,
+): Promise<void> {
+  await fetch(`/api/authored-docs/${spaceId}/${docId}/lock`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getDocumentVersions(
+  spaceId: string,
+  docId: string,
+  cookie: string,
+): Promise<DocumentVersion[]> {
+  return bffFetch<DocumentVersion[]>(`/authored-docs/${spaceId}/${docId}/versions`, {
+    cookie,
+    cache: 'no-store',
+  });
+}
+
+export async function getDocumentVersion(
+  spaceId: string,
+  docId: string,
+  versionId: number,
+): Promise<DocumentVersion> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}/versions/${versionId}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Version not found' })) as { error?: string };
+    throw new Error(err.error ?? 'Version not found');
+  }
+  return res.json() as Promise<DocumentVersion>;
+}
+
+export async function createDocumentVersion(
+  spaceId: string,
+  docId: string,
+  changeSummary?: string,
+): Promise<DocumentVersion> {
+  const res = await fetch(`/api/authored-docs/${spaceId}/${docId}/versions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ changeSummary }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Version create failed' })) as { error?: string };
+    throw new Error(err.error ?? 'Version create failed');
+  }
+  return res.json() as Promise<DocumentVersion>;
 }
 
 /**

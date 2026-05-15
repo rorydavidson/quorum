@@ -6,6 +6,7 @@ import {
   AuditLog,
   HierarchyCategoryConfig,
 } from "@snomed/types";
+import { runAuthoredDocMigrations } from "./authored-documents.js";
 
 // ---------------------------------------------------------------------------
 // Knex instance — dynamic client selection
@@ -136,6 +137,8 @@ export async function runMigrations(): Promise<void> {
     });
     console.log("[db] Created hierarchy_category_configs table");
   }
+
+  await runAuthoredDocMigrations();
 }
 
 // ---------------------------------------------------------------------------

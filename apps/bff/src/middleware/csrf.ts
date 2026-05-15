@@ -22,6 +22,11 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction):
     return;
   }
 
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_AUTH_BYPASS === "true") {
+    next();
+    return;
+  }
+
   const sessionToken = req.session[CSRF_SESSION_KEY];
   const headerToken = req.headers[CSRF_HEADER];
 

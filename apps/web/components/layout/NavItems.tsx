@@ -12,6 +12,7 @@ import {
   FileText,
   Calendar,
   Folder,
+  PenLine,
   type LucideIcon,
 } from 'lucide-react';
 import type { SpaceConfig } from '@snomed/types';
@@ -58,6 +59,7 @@ export function NavItems({ isAdmin, onNavigate }: NavItemsProps) {
 
   const isOverview  = pathname === `/spaces/${currentSpaceId}`;
   const isDocuments = !!currentSpaceId && pathname.startsWith(`/spaces/${currentSpaceId}/documents`);
+  const isAuthored  = !!currentSpaceId && pathname.startsWith(`/spaces/${currentSpaceId}/authored`);
   const isCalendar  = pathname === `/spaces/${currentSpaceId}/calendar`;
   const hasCalendar = !!(spaceConfig?.calendarId || spaceConfig?.icalUrl);
 
@@ -177,6 +179,14 @@ export function NavItems({ isAdmin, onNavigate }: NavItemsProps) {
                 })}
               </ul>
             )}
+
+            <SpaceNavLink
+              href={`/spaces/${currentSpaceId}/authored`}
+              active={isAuthored}
+              icon={<PenLine size={16} />}
+              label="Author"
+              onClick={onNavigate}
+            />
 
             {/* Calendar — only shown when space has a calendar configured */}
             {hasCalendar && (

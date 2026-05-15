@@ -8,6 +8,7 @@ import {
   FileText,
   Calendar,
   Folder,
+  PenLine,
 } from 'lucide-react';
 import type { SpaceConfig } from '@snomed/types';
 
@@ -21,6 +22,7 @@ export function SpaceNav({ space, spaceId }: Props) {
 
   const isOverview  = pathname === `/spaces/${spaceId}`;
   const isDocuments = pathname.startsWith(`/spaces/${spaceId}/documents`);
+  const isAuthored  = pathname.startsWith(`/spaces/${spaceId}/authored`);
   const isCalendar  = pathname === `/spaces/${spaceId}/calendar`;
   const hasCalendar = !!(space?.calendarId || space?.icalUrl);
 
@@ -95,6 +97,14 @@ export function SpaceNav({ space, spaceId }: Props) {
             })}
           </ul>
         )}
+
+        {/* Author */}
+        <SpaceNavLink
+          href={`/spaces/${spaceId}/authored`}
+          active={isAuthored}
+          icon={<PenLine size={16} />}
+          label="Author"
+        />
 
         {/* Calendar */}
         {hasCalendar && (

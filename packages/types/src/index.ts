@@ -128,3 +128,41 @@ export interface AuditLog {
   entityId: string;
   details?: string; // JSON string
 }
+
+// ---------------------------------------------------------------------------
+// Collaborative Authoring
+// ---------------------------------------------------------------------------
+
+export type DocumentType = 'agenda' | 'resolution' | 'minutes' | 'general';
+export type DocumentStatus = 'draft' | 'review' | 'approved' | 'archived';
+
+export interface PortalDocument {
+  id: string;
+  spaceId: string;
+  title: string;
+  docType: DocumentType;
+  status: DocumentStatus;
+  sectionId?: string;
+  sectionName?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  content?: string;
+  contentHtml?: string;
+  lockedBy?: string;
+  lockedByName?: string;
+  lockedAt?: string;
+}
+
+export interface DocumentVersion {
+  id: number;
+  documentId: string;
+  versionNumber: number;
+  content?: string;
+  contentHtml?: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  changeSummary?: string;
+}
