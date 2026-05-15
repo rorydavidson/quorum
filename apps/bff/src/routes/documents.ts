@@ -11,7 +11,7 @@ import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs } from "../services/db.js";
-import { listFiles, downloadFile, uploadFile, deleteFile, createFolder } from "../services/drive.js";
+import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -88,6 +88,16 @@ export function isAdminUser(groups: string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: validate a user-supplied Drive folder ID
+// ---------------------------------------------------------------------------
+
+const DRIVE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function isValidDriveId(id: string): boolean {
+  return DRIVE_ID_PATTERN.test(id) && id.length >= 1 && id.length <= 128;
+}
+
+// ---------------------------------------------------------------------------
 // GET /documents/categories — category sort-order config (auth required, no admin needed)
 // Used by the spaces listing page to order category sections correctly.
 // ---------------------------------------------------------------------------
@@ -139,7 +149,21 @@ router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
 
   try {
     const folderId = req.query.folderId as string | undefined;
-    const targetFolderId = folderId || space.driveFolderId;
+    let targetFolderId = space.driveFolderId;
+
+    if (folderId) {
+      if (!isValidDriveId(folderId)) {
+        res.status(400).json({ error: "Invalid folder ID", code: "INVALID_FOLDER_ID" });
+        return;
+      }
+      const belongs = await verifyFolderAncestry(folderId, space.driveFolderId);
+      if (!belongs) {
+        res.status(403).json({ error: "Folder is not within this space", code: "FOLDER_OUTSIDE_SPACE" });
+        return;
+      }
+      targetFolderId = folderId;
+    }
+
     const files = await listFiles(targetFolderId);
     res.json({ space, files });
   } catch (err) {
@@ -211,7 +235,21 @@ router.get(
 
     try {
       const folderId = req.query.folderId as string | undefined;
-      const targetFolderId = folderId || section.driveFolderId;
+      let targetFolderId = section.driveFolderId;
+
+      if (folderId) {
+        if (!isValidDriveId(folderId)) {
+          res.status(400).json({ error: "Invalid folder ID", code: "INVALID_FOLDER_ID" });
+          return;
+        }
+        const belongs = await verifyFolderAncestry(folderId, space.driveFolderId);
+        if (!belongs) {
+          res.status(403).json({ error: "Folder is not within this space", code: "FOLDER_OUTSIDE_SPACE" });
+          return;
+        }
+        targetFolderId = folderId;
+      }
+
       const files = await listFiles(targetFolderId);
       res.json({ space, section, files });
     } catch (err) {
@@ -253,9 +291,14 @@ router.get(
     }
 
     try {
-      const { stream, mimeType, name } = await downloadFile(
-        String(req.params.fileId),
-      );
+      const fileId = String(req.params.fileId);
+      const fileBelongs = await verifyFileAncestry(fileId, space.driveFolderId);
+      if (!fileBelongs) {
+        res.status(403).json({ error: "File is not within this space", code: "FILE_OUTSIDE_SPACE" });
+        return;
+      }
+
+      const { stream, mimeType, name } = await downloadFile(fileId);
       // ?download=1 → force browser save-as dialog (attachment) regardless of type.
       // Without the flag: PDFs stream inline (so the in-portal PDF viewer can fetch them);
       // all other types are always forced to attachment.
@@ -377,12 +420,22 @@ router.post(
     }
 
     try {
-      // Priority: 1. folderId (subfolder), 2. sectionId (category folder), 3. space.driveFolderId (root)
       const folderId = req.query.folderId as string | undefined;
       const sectionId = req.query.sectionId as string | undefined;
       let targetFolderId = space.driveFolderId;
 
       if (folderId) {
+        if (!isValidDriveId(folderId)) {
+          fs.unlink(file.path, () => { });
+          res.status(400).json({ error: "Invalid folder ID", code: "INVALID_FOLDER_ID" });
+          return;
+        }
+        const belongs = await verifyFolderAncestry(folderId, space.driveFolderId);
+        if (!belongs) {
+          fs.unlink(file.path, () => { });
+          res.status(403).json({ error: "Folder is not within this space", code: "FOLDER_OUTSIDE_SPACE" });
+          return;
+        }
         targetFolderId = folderId;
       } else if (sectionId) {
         const section = await getSectionById(space.id, sectionId);
@@ -482,6 +535,15 @@ router.post(
       let targetFolderId = space.driveFolderId;
 
       if (folderId) {
+        if (!isValidDriveId(folderId)) {
+          res.status(400).json({ error: "Invalid folder ID", code: "INVALID_FOLDER_ID" });
+          return;
+        }
+        const belongs = await verifyFolderAncestry(folderId, space.driveFolderId);
+        if (!belongs) {
+          res.status(403).json({ error: "Folder is not within this space", code: "FOLDER_OUTSIDE_SPACE" });
+          return;
+        }
         targetFolderId = folderId;
       } else if (sectionId) {
         const section = await getSectionById(space.id, sectionId);
@@ -547,6 +609,12 @@ router.delete(
     }
 
     try {
+      const fileBelongs = await verifyFileAncestry(fileId, space.driveFolderId);
+      if (!fileBelongs) {
+        res.status(403).json({ error: "File is not within this space", code: "FILE_OUTSIDE_SPACE" });
+        return;
+      }
+
       await deleteFile(fileId);
 
       res.status(204).end();

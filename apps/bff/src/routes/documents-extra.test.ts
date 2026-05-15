@@ -36,6 +36,8 @@ vi.mock("../services/drive.js", () => ({
   uploadFile: vi.fn(),
   searchFilesInFolders: vi.fn(),
   checkDriveAccess: vi.fn(),
+  verifyFolderAncestry: vi.fn().mockResolvedValue(true),
+  verifyFileAncestry: vi.fn().mockResolvedValue(true),
 }));
 
 import * as db from "../services/db.js";
