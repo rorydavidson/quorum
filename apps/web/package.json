@@ -12,6 +12,7 @@
   "dependencies": {
     "@snomed/types": "workspace:*",
     "@tanstack/react-query": "^5.66.9",
+    "isomorphic-dompurify": "^3.18.0",
     "lucide-react": "^0.475.0",
     "next": "15.2.0",
     "react": "^19.0.0",

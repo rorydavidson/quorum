@@ -1,10 +1,51 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { z } from "zod";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getEventMetadata, upsertEventMetadata, getSpaceById, createAuditLog } from "../services/db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { userCanAccessSpace, isAdminUser } from "./documents.js";
 
 const router: IRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Validation
+//
+// The googleDocUrl is later rendered as an <a href> in the frontend. React
+// does NOT block javascript:/data: URLs in href, so an unvalidated value would
+// allow stored XSS. Restrict it to http(s) here (empty string clears it).
+// ---------------------------------------------------------------------------
+
+const AgendaItemSchema = z.object({
+  id: z.string().min(1).max(100),
+  text: z.string().min(1).max(2000),
+  responsible: z.string().max(200).optional(),
+  completed: z.boolean(),
+});
+
+const EventMetadataUpdateSchema = z
+  .object({
+    googleDocUrl: z
+      .string()
+      .max(2048)
+      .refine(
+        (v) => v === "" || /^https?:\/\//i.test(v),
+        "googleDocUrl must be an http(s) URL",
+      )
+      .optional(),
+    agendaItems: z.array(AgendaItemSchema).max(200).optional(),
+  })
+  .strict();
+
+function zodError(res: Response, err: z.ZodError): void {
+  res.status(400).json({
+    error: "Validation failed",
+    code: "INVALID_PAYLOAD",
+    details: err.errors.map((e) => ({
+      path: e.path.join("."),
+      message: e.message,
+    })),
+  });
+}
 
 // All event metadata routes require session auth
 router.use(requireAuth);
@@ -63,7 +104,10 @@ router.post(
         const spaceId = req.params.spaceId as string;
         const eventId = req.params.eventId as string;
         const user = req.session.user!;
-        const payload = req.body;
+
+        const parsed = EventMetadataUpdateSchema.safeParse(req.body);
+        if (!parsed.success) { zodError(res, parsed.error); return; }
+        const payload = parsed.data;
 
         const space = await getSpaceById(spaceId);
         if (!space) {
