@@ -18,7 +18,7 @@ import {
   getCategoryConfigs,
   setCategoryConfigs,
 } from "../services/db.js";
-import { copyFileInDrive } from "../services/drive.js";
+import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
 
 const router: IRouter = Router();
 
@@ -33,7 +33,16 @@ const SpaceWriteSchema = z.object({
   keycloakGroup: z.string().min(1).max(200),
   driveFolderId: z.string().min(1).max(200),
   calendarId: z.string().max(500).optional(),
-  icalUrl: z.string().max(2048).optional(),
+  // Fetched server-side by the calendar service, so constrain the scheme to
+  // https to reduce SSRF surface (blocks http://169.254.* metadata, file://, etc.).
+  icalUrl: z
+    .string()
+    .max(2048)
+    .refine(
+      (v) => v === "" || /^https:\/\//i.test(v),
+      "icalUrl must be an https URL",
+    )
+    .optional(),
   discourseCategorySlug: z.string().max(100).optional(),
   hierarchyCategory: z.string().min(1).max(200),
   uploadGroups: z.array(z.string().max(200)).optional(),
@@ -377,6 +386,15 @@ router.post(
     const space = await getSpaceById(spaceId);
     if (!space) {
       res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+
+    // Verify the file actually lives within this space's Drive tree before
+    // copying it — consistent with the download/delete ancestry checks and
+    // prevents copying an arbitrary file the service account can see.
+    const fileBelongs = await verifyFileAncestry(fileId, space.driveFolderId);
+    if (!fileBelongs) {
+      res.status(403).json({ error: "File is not within this space", code: "FILE_OUTSIDE_SPACE" });
       return;
     }
 

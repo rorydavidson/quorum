@@ -4,25 +4,12 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { getSpaces } from '../services/db.js';
 import { searchFilesInFolders } from '../services/drive.js';
 import { getUpcomingEvents } from '../services/calendar.js';
+import { isAdminUser, userCanAccessSpace } from '../utils/rbac.js';
 import type { SearchResult } from '@snomed/types';
 
 const router: IRouter = Router();
 
 router.use(requireAuth);
-
-// ---------------------------------------------------------------------------
-// Helpers (consistent with other routes)
-// ---------------------------------------------------------------------------
-
-function isAdminUser(groups: string[]): boolean {
-  return groups.some((g) => g === 'portal_admin' || g === '/portal_admin');
-}
-
-function userCanAccessSpace(userGroups: string[], spaceGroup: string): boolean {
-  return userGroups.some(
-    (g) => g === spaceGroup || g === spaceGroup.replace(/^\//, '') || `/${g}` === spaceGroup
-  );
-}
 
 // ---------------------------------------------------------------------------
 // GET /search?q=<query>&limit=20

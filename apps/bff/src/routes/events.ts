@@ -3,7 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getEventMetadata, upsertEventMetadata, getSpaceById, createAuditLog } from "../services/db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { userCanAccessSpace, isAdminUser } from "./documents.js";
+import { userCanAccessSpace, isAdminUser } from "../utils/rbac.js";
 
 const router: IRouter = Router();
 

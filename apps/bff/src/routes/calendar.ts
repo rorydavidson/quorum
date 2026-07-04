@@ -3,25 +3,12 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { getSpaces, getSpaceById, getEventMetadata } from '../services/db.js';
 import { getUpcomingEvents, getEventByID } from '../services/calendar.js';
+import { isAdminUser, userCanAccessSpace } from '../utils/rbac.js';
 
 const router: IRouter = Router();
 
 // All calendar routes require an active session
 router.use(requireAuth);
-
-// ---------------------------------------------------------------------------
-// Helpers (duplicated from documents.ts — shared logic kept local to avoid coupling)
-// ---------------------------------------------------------------------------
-
-function isAdminUser(groups: string[]): boolean {
-  return groups.some((g) => g === 'portal_admin' || g === '/portal_admin');
-}
-
-function userCanAccessSpace(userGroups: string[], spaceGroup: string): boolean {
-  return userGroups.some(
-    (g) => g === spaceGroup || g === spaceGroup.replace(/^\//, '') || `/${g}` === spaceGroup
-  );
-}
 
 // ---------------------------------------------------------------------------
 // GET /calendar — upcoming events across the user's accessible spaces

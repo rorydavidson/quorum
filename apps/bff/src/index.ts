@@ -8,6 +8,7 @@ import session from "express-session";
 import helmet from "helmet";
 import connectPgSimple from "connect-pg-simple";
 import { initKeycloak } from "./services/keycloak.js";
+import { checkDriveAccess } from "./services/drive.js";
 import db, { runMigrations, isPostgresDb } from "./services/db.js";
 import authRouter from "./routes/auth.js";
 import documentsRouter from "./routes/documents.js";
@@ -130,13 +131,12 @@ app.use(globalLimiter);
 // ---------------------------------------------------------------------------
 
 app.get("/health", async (_req, res) => {
+  // The DB is the hard dependency: if it's down we're not ready (503).
+  // Drive reachability is reported as a diagnostic but does not fail the probe —
+  // individual document routes already degrade to 502 on Drive errors, and in
+  // dev/mock mode Drive is intentionally unconfigured.
   try {
     await db.raw("SELECT 1");
-    res.json({
-      status: "ok",
-      service: "bff",
-      timestamp: new Date().toISOString(),
-    });
   } catch (err) {
     console.error("[health] DB check failed:", err);
     res.status(503).json({
@@ -145,7 +145,19 @@ app.get("/health", async (_req, res) => {
       error: "Database unreachable",
       timestamp: new Date().toISOString(),
     });
+    return;
   }
+
+  const driveOk = await checkDriveAccess().catch(() => false);
+  res.json({
+    status: "ok",
+    service: "bff",
+    dependencies: {
+      database: "ok",
+      drive: driveOk ? "ok" : "unavailable",
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/auth", authLimiter, authRouter);

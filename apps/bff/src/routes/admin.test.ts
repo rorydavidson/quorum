@@ -23,7 +23,14 @@ vi.mock('../services/db.js', () => ({
   default: {},
 }));
 
+// Mock the Drive service so snapshot tests never hit Google APIs.
+vi.mock('../services/drive.js', () => ({
+  copyFileInDrive: vi.fn(),
+  verifyFileAncestry: vi.fn(),
+}));
+
 import * as db from '../services/db.js';
+import * as drive from '../services/drive.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -429,5 +436,99 @@ describe('DELETE /admin/spaces/:spaceId/sections/:sectionId', () => {
     const res = await request(app).delete('/admin/spaces/board/sections/agenda');
     expect(res.status).toBe(204);
     expect(db.deleteSection).toHaveBeenCalledWith('board', 'agenda');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Official Record snapshot — POST /admin/spaces/:spaceId/files/:fileId/snapshot
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — Official Record snapshot', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(mockSpace);
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(true);
+    vi.mocked(drive.copyFileInDrive).mockResolvedValue({
+      id: 'copy-1',
+      name: '_OFFICIAL_RECORD_2026-07-04_Report.pdf',
+      mimeType: 'application/pdf',
+      size: 0.5,
+      createdTime: '2026-07-04T00:00:00Z',
+      modifiedTime: '2026-07-04T00:00:00Z',
+      isOfficialRecord: true,
+    });
+  });
+
+  it('copies the file when it belongs to the space', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(201);
+    expect(drive.verifyFileAncestry).toHaveBeenCalledWith('file-9', 'folder-1');
+    expect(drive.copyFileInDrive).toHaveBeenCalled();
+  });
+
+  it('rejects with 403 when the file is outside the space tree', async () => {
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(false);
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/foreign-file/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FILE_OUTSIDE_SPACE');
+    expect(drive.copyFileInDrive).not.toHaveBeenCalled();
+  });
+
+  it('rejects re-snapshotting an existing Official Record', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: '_OFFICIAL_RECORD_2025-01-01_Report.pdf' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ALREADY_OFFICIAL_RECORD');
+    expect(drive.copyFileInDrive).not.toHaveBeenCalled();
+  });
+
+  it('requires admin', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// icalUrl validation — POST /admin/spaces
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — icalUrl scheme validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(undefined);
+    vi.mocked(db.upsertSpace).mockResolvedValue(mockSpace);
+  });
+
+  it('accepts an https icalUrl', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces')
+      .send({ ...validSpacePayload, icalUrl: 'https://calendar.example/feed.ics' });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects a non-https (http) icalUrl', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces')
+      .send({ ...validSpacePayload, icalUrl: 'http://169.254.169.254/latest/meta-data/' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_PAYLOAD');
+    expect(db.upsertSpace).not.toHaveBeenCalled();
   });
 });
