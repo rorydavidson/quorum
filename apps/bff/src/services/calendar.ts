@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { logger } from "./logger.js";
 import nodeIcal from 'node-ical';
 import type { VEvent, ParameterValue } from 'node-ical';
 import type { CalendarEvent } from '@snomed/types';
@@ -301,18 +302,15 @@ export async function getUpcomingEvents(
         if (result.status === 'fulfilled') {
           anyRealDataFetched = true;
           allEvents.push(...result.value);
-          console.log(
+          logger.debug(
             `[calendar] SA: fetched ${result.value.length} events for ${entry.calendarId}`
           );
         } else {
-          console.error(
-            `[calendar] SA: failed to fetch calendar ${entry.calendarId}:`,
-            (result.reason as Error)?.message ?? result.reason
-          );
+          logger.warn(`[calendar] SA: failed to fetch calendar ${entry.calendarId}: ${(result.reason as Error)?.message ?? result.reason}`);
 
           // SA failed — try iCal fallback if an icalUrl is set on this entry
           if (entry.icalUrl) {
-            console.log(
+            logger.debug(
               `[calendar] SA: falling back to iCal for ${entry.calendarId} (icalUrl set)`
             );
             try {
@@ -329,14 +327,11 @@ export async function getUpcomingEvents(
                   spaceName: entry.spaceName,
                 }))
               );
-              console.log(
+              logger.debug(
                 `[calendar] iCal fallback: fetched ${icalEvents.length} events from ${entry.icalUrl}`
               );
             } catch (icalErr) {
-              console.warn(
-                `[calendar] iCal fallback also failed for ${entry.icalUrl}:`,
-                (icalErr as Error)?.message
-              );
+              logger.warn(`[calendar] iCal fallback also failed for ${entry.icalUrl}: ${(icalErr as Error)?.message}`);
             }
           }
         }
@@ -372,14 +367,11 @@ export async function getUpcomingEvents(
         if (result.status === 'fulfilled') {
           anyRealDataFetched = true;
           allEvents.push(...result.value);
-          console.log(
+          logger.debug(
             `[calendar] iCal (SA mode): fetched ${result.value.length} events from ${label}`
           );
         } else {
-          console.warn(
-            `[calendar] iCal (SA mode): could not fetch ${label}`,
-            String(result.reason).split('\n')[0]
-          );
+          logger.warn(`[calendar] iCal (SA mode): could not fetch ${label} ${String(result.reason).split('\n')[0]}`);
         }
       }
     }
@@ -391,7 +383,7 @@ export async function getUpcomingEvents(
     }
 
     // Fall through to mock only if both SA and iCal-only fetches all failed
-    console.log('[calendar] SA mode: no real data fetched from any source — using mock events');
+    logger.debug('[calendar] SA mode: no real data fetched from any source — using mock events');
     return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
       ...e,
       spaceId: calendars[i % calendars.length].spaceId,
@@ -430,17 +422,14 @@ export async function getUpcomingEvents(
       anyICalSuccess = true;
       icalEvents.push(...result.value);
       if (result.value.length > 0) {
-        console.log(`[calendar] iCal: fetched ${result.value.length} events from ${label}`);
+        logger.debug(`[calendar] iCal: fetched ${result.value.length} events from ${label}`);
       } else {
-        console.log(
+        logger.debug(
           `[calendar] iCal: 0 upcoming events from ${label} (calendar may be empty or events outside window)`
         );
       }
     } else {
-      console.warn(
-        `[calendar] iCal: could not fetch ${label} — check that the URL is correct and publicly accessible.`,
-        String(result.reason).split('\n')[0]
-      );
+      logger.warn(`[calendar] iCal: could not fetch ${label} — check that the URL is correct and publicly accessible. ${String(result.reason).split('\n')[0]}`);
     }
   }
 
@@ -455,7 +444,7 @@ export async function getUpcomingEvents(
   // ------------------------------------------------------------------
   // Tier 3: Mock data — all fetches failed (private calendars or network error)
   // ------------------------------------------------------------------
-  console.log('[calendar] All iCal fetches failed — using mock events');
+  logger.debug('[calendar] All iCal fetches failed — using mock events');
   return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
     ...e,
     spaceId: calendars[i % calendars.length].spaceId,
@@ -481,7 +470,7 @@ export async function getEventByID(
       });
       return mapGoogleEvent(res.data);
     } catch (err) {
-      console.warn(`[calendar] SA: failed to get event ${eventId} from ${calendarId}:`, (err as Error).message);
+      logger.warn(`[calendar] SA: failed to get event ${eventId} from ${calendarId}: ${(err as Error).message}`);
       // fallback to iCal if available
     }
   }
@@ -498,7 +487,7 @@ export async function getEventByID(
         return mapICalEvent(component as VEvent);
       }
     } catch (err) {
-      console.warn(`[calendar] iCal: failed to get event ${eventId} from ${url}:`, (err as Error).message);
+      logger.warn(`[calendar] iCal: failed to get event ${eventId} from ${url}: ${(err as Error).message}`);
     }
   }
 

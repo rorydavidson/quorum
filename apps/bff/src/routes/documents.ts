@@ -15,6 +15,7 @@ import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryCon
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
 import { isAdminUser, userCanAccessSpace, userCanUpload } from "../utils/rbac.js";
 import { notifyActivity } from "../services/notifications.js";
+import { reqLog } from "../services/logger.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -147,7 +148,7 @@ router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
     const files = await listFiles(targetFolderId);
     res.json({ space, files });
   } catch (err) {
-    console.error("[documents] Drive error:", err);
+    reqLog(req).error({ err }, "Drive listing failed");
     res
       .status(502)
       .json({ error: "Failed to list files from Drive", code: "DRIVE_ERROR" });
@@ -233,7 +234,7 @@ router.get(
       const files = await listFiles(targetFolderId);
       res.json({ space, section, files });
     } catch (err) {
-      console.error("[documents] Drive error:", err);
+      reqLog(req).error({ err }, "Drive listing failed");
       res.status(502).json({
         error: "Failed to list files from Drive",
         code: "DRIVE_ERROR",
@@ -296,7 +297,7 @@ router.get(
 
       // Handle stream errors (e.g. Drive timeout) mid-download
       stream.on("error", (err) => {
-        console.error("[documents] Proxy stream error:", err);
+        reqLog(req).error({ err }, "Download proxy stream error");
         if (!res.headersSent) {
           res.status(502).json({ error: "Download failed midway", code: "STREAM_ERROR" });
         }
@@ -305,7 +306,7 @@ router.get(
 
       stream.pipe(res);
     } catch (err) {
-      console.error("[documents] Download error:", err);
+      reqLog(req).error({ err }, "Drive download failed");
       res.status(502).json({
         error: "Failed to download file from Drive",
         code: "DRIVE_ERROR",
@@ -421,7 +422,7 @@ router.post(
       // exception that fails the process.
       stream.on("error", (err) => {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-          console.error("[documents] Unexpected stream error:", err);
+          reqLog(req).error({ err }, "Unexpected upload stream error");
         }
       });
 
@@ -437,7 +438,7 @@ router.post(
 
       // Clean up the temp file after upload
       fs.unlink(file.path, (err) => {
-        if (err) console.error("[documents] Failed to delete temp file:", file.path, err);
+        if (err) reqLog(req).error({ err, path: file.path }, "Failed to delete temp upload file");
       });
 
       res.status(201).json(driveFile);
@@ -468,7 +469,7 @@ router.post(
         actorUserId: user.sub,
       });
     } catch (err) {
-      console.error("[documents] Upload error:", err);
+      reqLog(req).error({ err }, "Drive upload failed");
       // Best effort cleanup if upload fails
       fs.unlink(file.path, () => { });
       res
@@ -542,7 +543,7 @@ router.post(
         details: JSON.stringify({ spaceId: space.id, name: name.trim(), folderId: targetFolderId }),
       });
     } catch (err) {
-      console.error("[documents] Create folder error:", err);
+      reqLog(req).error({ err }, "Drive create-folder failed");
       res.status(502).json({ error: "Failed to create folder in Drive", code: "DRIVE_ERROR" });
     }
   }),
@@ -611,7 +612,7 @@ router.delete(
         }),
       });
     } catch (err) {
-      console.error("[documents] Delete error:", err);
+      reqLog(req).error({ err }, "Drive delete failed");
       res.status(502).json({ error: "Failed to delete file from Drive", code: "DRIVE_ERROR" });
     }
   }),

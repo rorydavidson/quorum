@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { logger } from "./logger.js";
 import type { DriveFile } from "@snomed/types";
 import { Readable } from "stream";
 import { TtlCache } from "../utils/ttlCache.js";
@@ -365,9 +366,9 @@ export async function copyFileInDrive(
     // Fail open in dev — service account may only have read access locally.
     // Fail closed in production — propagate so the 502 is returned to the client.
     if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[drive] copyFileInDrive: Drive API error in dev — returning synthetic copy.",
-        err,
+      logger.warn(
+        { err },
+        "copyFileInDrive: Drive API error in dev — returning synthetic copy",
       );
       return {
         id: `dev-copy-${Date.now()}`,

@@ -69,6 +69,7 @@ BFF / Backend-for-Frontend (port 3001)
 ### Security & Reliability
 - **Header Encoding**: User metadata (name, email, groups) is Base64 encoded when passed from the Next.js middleware to the BFF. This prevents header-injection vulnerabilities and safely handles Unicode/special characters in user names.
 - **Unified Error Handling**: A global JSON error handler in the BFF ensures that all API failures return consistent, helpful responses to the frontend.
+- **Structured Logging**: The BFF logs newline-delimited JSON (via `pino`) with a level, ISO timestamp, and `service` field. Each request is assigned a correlation id (returned as the `x-request-id` header) and logged on completion with method, path, status and duration; downstream errors are logged with that id folded in, so a single request can be traced end-to-end in CloudWatch or any log aggregator. Sensitive headers are redacted; level is set via `LOG_LEVEL`. Health-check requests are skipped to keep the feed quiet.
 - **Proxy Body Integrity**: Next.js API routes use `duplex: 'half'` streaming for POST requests, ensuring multipart/form-data (uploads) is forwarded correctly without corruption.
 - **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 30 req/min for auth, 20 req/min for search, 10 req/min for uploads). Responses include standard `RateLimit-*` headers. Counters are stored in **Redis** when `REDIS_URL` is set, so limits hold consistently across multiple instances; without it, an in-memory store is used (single instance only).
 - **CSRF Protection**: State-changing endpoints (`/documents`, `/admin`, `/events`, `/notifications`) require a `x-csrf-token` header on POST/PUT/DELETE requests. The frontend fetches a per-session token from `GET /csrf-token`, caches it, and attaches it to every mutating request (with a one-shot refresh if the token is rejected).
@@ -407,6 +408,11 @@ DISCOURSE_URL=https://forums.snomed.org
 # SMTP_USER=<smtp-username>
 # SMTP_PASS=<smtp-password>
 # SMTP_FROM=Quorum <no-reply@example.com>
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Level: trace | debug | info | warn | error | fatal | silent.
+# Defaults to debug in development, info in production.
+# LOG_LEVEL=debug
 ```
 
 ### `apps/web/.env.local`

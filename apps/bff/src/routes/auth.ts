@@ -1,4 +1,5 @@
 import { Router, type IRouter } from 'express';
+import { reqLog } from "../services/logger.js";
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
   buildAuthParams,
@@ -97,8 +98,10 @@ router.get('/callback', asyncHandler(async (req, res) => {
   const expectedNonce = getCookie(req.headers.cookie, 'oauth_nonce');
 
   if (!expectedState || !expectedNonce) {
-    console.error('[auth] Callback arrived without oauth_state / oauth_nonce cookies — ' +
-      'browser may have blocked cookies or the 10-minute login window expired');
+    reqLog(req).warn(
+      'Callback arrived without oauth_state / oauth_nonce cookies — ' +
+      'browser may have blocked cookies or the 10-minute login window expired',
+    );
     res.status(400).json({ error: 'Missing OAuth state or nonce', code: 'INVALID_STATE' });
     return;
   }
@@ -120,7 +123,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
   try {
     tokenSet = await exchangeCodeForTokens(callbackUrl, expectedState, expectedNonce);
   } catch (err) {
-    console.error('[auth] Token exchange failed:', err);
+    reqLog(req).error({ err }, "Token exchange failed");
     res.status(500).json({ error: 'Authentication failed', code: 'AUTH_ERROR' });
     return;
   }
@@ -132,7 +135,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
 
   req.session.save((err) => {
     if (err) {
-      console.error('[auth] Failed to save session after callback', err);
+      reqLog(req).error({ err }, "Failed to save session after callback");
       res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
       return;
     }
@@ -150,7 +153,7 @@ router.get('/logout', (req, res) => {
   const logoutUrl = buildLogoutUrl(postLogoutUri);
 
   req.session.destroy((err) => {
-    if (err) console.error('[auth] Session destroy error on logout:', err);
+    if (err) reqLog(req).error({ err }, "Session destroy error on logout");
     res.clearCookie(process.env.SESSION_COOKIE_NAME ?? 'quorum_session');
     res.redirect(logoutUrl);
   });
@@ -184,7 +187,7 @@ router.post('/refresh', asyncHandler(async (req, res) => {
   try {
     tokenSet = await refreshTokens(req.session.refreshToken);
   } catch (err) {
-    console.error('[auth] Token refresh failed:', err);
+    reqLog(req).error({ err }, "Token refresh failed");
     res.status(401).json({ error: 'Session expired', code: 'SESSION_EXPIRED' });
     return;
   }

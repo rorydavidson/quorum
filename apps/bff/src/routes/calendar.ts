@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
+import { reqLog } from "../services/logger.js";
 import { requireAuth } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { getSpaces, getSpaceById, getEventMetadata } from '../services/db.js';
@@ -47,7 +48,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
   try {
     events = await getUpcomingEvents(calendarEntries, limit, days);
   } catch (err) {
-    console.error('[calendar] getUpcomingEvents failed:', err);
+    reqLog(req).error({ err }, "getUpcomingEvents failed");
     res.status(502).json({ error: 'Failed to fetch calendar events', code: 'CALENDAR_ERROR' });
     return;
   }
