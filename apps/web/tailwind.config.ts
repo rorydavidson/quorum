@@ -18,7 +18,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Google Sans"', 'Inter', 'system-ui', 'sans-serif'],
       },
     },
   },

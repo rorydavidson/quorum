@@ -83,7 +83,7 @@ Danger:         #DC2626   (errors, destructive actions)
 
 ### Typography
 
-- Font: `Inter` (Google Fonts) — clean, professional, excellent on Retina/iPad
+- Font: `Google Sans` (Google Fonts), falling back to `Inter`/system — clean, professional, excellent on Retina/iPad
 - Headings: `font-semibold`, scale: `text-2xl` → `text-sm`
 - Body: `text-base` / `text-sm`, colour `#4D5057`
 
