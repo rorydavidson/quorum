@@ -20,6 +20,8 @@ import forumRouter from "./routes/forum.js";
 import notificationsRouter from "./routes/notifications.js";
 import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
+import { logger, reqLog } from "./services/logger.js";
+import { httpLogger } from "./middleware/httpLogger.js";
 
 // ---------------------------------------------------------------------------
 // Environment validation — fail fast before binding any port
@@ -27,15 +29,16 @@ import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
-  console.error(
-    "[startup] FATAL: SESSION_SECRET is not set. " +
-      "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
+  logger.fatal(
+    "SESSION_SECRET is not set. Generate one with: " +
+      "node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"",
   );
   process.exit(1);
 }
 if (SESSION_SECRET.length < 32) {
-  console.error(
-    `[startup] FATAL: SESSION_SECRET is too short (${SESSION_SECRET.length} chars). Minimum 32 characters required.`,
+  logger.fatal(
+    { length: SESSION_SECRET.length },
+    "SESSION_SECRET is too short — minimum 32 characters required",
   );
   process.exit(1);
 }
@@ -50,6 +53,10 @@ app.set("trust proxy", 1);
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
+
+// Structured request logging + per-request correlation id (must run first so
+// every request — including those rejected downstream — is logged).
+app.use(httpLogger);
 
 // Security headers (helmet sets X-Frame-Options, HSTS, CSP, etc.)
 app.use(helmet());
@@ -140,7 +147,7 @@ app.get("/health", async (_req, res) => {
   try {
     await db.raw("SELECT 1");
   } catch (err) {
-    console.error("[health] DB check failed:", err);
+    logger.error({ err }, "Health check: database unreachable");
     res.status(503).json({
       status: "error",
       service: "bff",
@@ -184,12 +191,12 @@ interface AppError extends Error {
 app.use(
   (
     err: AppError,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
-    console.error("[BFF Error]", err);
     const status = err.status || err.statusCode || 500;
+    reqLog(req).error({ err, status, code: err.code }, "Unhandled request error");
     res.status(status).json({
       error: err.message || "Internal Server Error",
       code: err.code || "INTERNAL_ERROR",
@@ -213,21 +220,21 @@ async function start(): Promise<void> {
   try {
     await initKeycloak();
   } catch (err) {
-    console.warn(
-      "[startup] Keycloak discovery failed — running without auth (check env vars):",
-      (err as Error).message,
+    logger.warn(
+      { err: (err as Error).message },
+      "Keycloak discovery failed — running without auth (check env vars)",
     );
   }
 
   try {
     await runMigrations();
   } catch (err) {
-    console.error("[startup] DB migration failed:", err);
+    logger.fatal({ err }, "DB migration failed");
     process.exit(1);
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`BFF running on http://localhost:${PORT}`);
+    logger.info({ port: PORT }, `BFF running on http://localhost:${PORT}`);
   });
 
   // ---------------------------------------------------------------------------
@@ -235,21 +242,21 @@ async function start(): Promise<void> {
   // ---------------------------------------------------------------------------
 
   const shutdown = async (signal: string) => {
-    console.log(`[shutdown] ${signal} received — draining connections...`);
+    logger.info({ signal }, "Shutdown signal received — draining connections");
     server.close(async () => {
       try {
         await closeRateLimiterRedis();
         await db.destroy();
-        console.log("[shutdown] DB & Redis connections closed. Exiting.");
+        logger.info("DB & Redis connections closed — exiting");
       } catch (err) {
-        console.error("[shutdown] Error closing connections:", err);
+        logger.error({ err }, "Error closing connections during shutdown");
       }
       process.exit(0);
     });
 
     // Force exit after 30 seconds if connections don't drain
     setTimeout(() => {
-      console.error("[shutdown] Forced exit after 30s timeout");
+      logger.error("Forced exit after 30s shutdown timeout");
       process.exit(1);
     }, 30_000).unref();
   };

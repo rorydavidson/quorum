@@ -1,4 +1,5 @@
 import { Issuer, generators, type Client, type TokenSet } from 'openid-client';
+import { logger } from "./logger.js";
 import type { SessionUser } from '@snomed/types';
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ export async function initKeycloak(): Promise<void> {
     redirect_uris: [REDIRECT_URI],
     response_types: ['code'],
   });
-  console.log(`[keycloak] Discovered issuer: ${_issuer.metadata.issuer}`);
+  logger.info({ issuer: _issuer.metadata.issuer }, "Discovered Keycloak issuer");
 }
 
 function getClient(): Client {

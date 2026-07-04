@@ -1,4 +1,5 @@
 import type { ActivityType } from "@snomed/types";
+import { logger } from "./logger.js";
 import {
   createActivity,
   getSpaceSubscribers,
@@ -57,7 +58,7 @@ export async function notifyActivity(input: NotifyInput): Promise<number> {
     );
     sent = results.filter(Boolean).length;
   } catch (err) {
-    console.error("[notifications] notifyActivity failed:", err);
+    logger.error({ err }, "notifyActivity failed");
   }
   return sent;
 }

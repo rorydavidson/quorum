@@ -1,4 +1,5 @@
 import Knex from "knex";
+import { logger } from "./logger.js";
 import {
   SpaceConfig,
   SpaceSection,
@@ -60,7 +61,7 @@ export async function runMigrations(): Promise<void> {
       t.text("upload_groups").notNullable().defaultTo("[]"); // JSON array
       t.integer("sort_order").notNullable().defaultTo(0);
     });
-    console.log("[db] Created spaces table");
+    logger.info("[db] Created spaces table");
   }
 
   // Idempotent column migration: add ical_url if it doesn't exist (existing DBs)
@@ -69,7 +70,7 @@ export async function runMigrations(): Promise<void> {
     await db.schema.alterTable("spaces", (t) => {
       t.string("ical_url").nullable();
     });
-    console.log("[db] Added ical_url column to spaces table");
+    logger.info("[db] Added ical_url column to spaces table");
   }
 
   // Idempotent column migration: add discourse_category_slug if it doesn't exist
@@ -81,7 +82,7 @@ export async function runMigrations(): Promise<void> {
     await db.schema.alterTable("spaces", (t) => {
       t.string("discourse_category_slug").nullable();
     });
-    console.log("[db] Added discourse_category_slug column to spaces table");
+    logger.info("[db] Added discourse_category_slug column to spaces table");
   }
 
   const hasSections = await db.schema.hasTable("space_sections");
@@ -99,7 +100,7 @@ export async function runMigrations(): Promise<void> {
       t.integer("sort_order").notNullable().defaultTo(0);
       t.primary(["id", "space_id"]);
     });
-    console.log("[db] Created space_sections table");
+    logger.info("[db] Created space_sections table");
   }
 
   const hasEventMetadata = await db.schema.hasTable("event_metadata");
@@ -114,7 +115,7 @@ export async function runMigrations(): Promise<void> {
       t.string("google_doc_url").nullable();
       t.text("agenda_items").notNullable().defaultTo("[]"); // JSON
     });
-    console.log("[db] Created event_metadata table");
+    logger.info("[db] Created event_metadata table");
   }
 
   const hasAuditLogs = await db.schema.hasTable("audit_logs");
@@ -129,7 +130,7 @@ export async function runMigrations(): Promise<void> {
       t.string("entity_id").notNullable();
       t.text("details").nullable(); // JSON
     });
-    console.log("[db] Created audit_logs table");
+    logger.info("[db] Created audit_logs table");
   }
 
   const hasCategoryConfigs = await db.schema.hasTable("hierarchy_category_configs");
@@ -138,7 +139,7 @@ export async function runMigrations(): Promise<void> {
       t.string("name").primary();
       t.integer("sort_order").notNullable().defaultTo(0);
     });
-    console.log("[db] Created hierarchy_category_configs table");
+    logger.info("[db] Created hierarchy_category_configs table");
   }
 
   const hasDocumentReads = await db.schema.hasTable("document_reads");
@@ -152,7 +153,7 @@ export async function runMigrations(): Promise<void> {
       t.primary(["file_id", "user_id"]);
       t.index(["space_id", "user_id"]); // fast "my reads in this space" lookups
     });
-    console.log("[db] Created document_reads table");
+    logger.info("[db] Created document_reads table");
   }
 
   // Notifiable events within a space. Kept as a durable log and used to build
@@ -170,7 +171,7 @@ export async function runMigrations(): Promise<void> {
       t.timestamp("created_at").notNullable().defaultTo(db.fn.now());
       t.index(["space_id", "created_at"]);
     });
-    console.log("[db] Created activities table");
+    logger.info("[db] Created activities table");
   }
 
   // Opt-in "Notify me" subscriptions. The email is captured from the user's
@@ -185,7 +186,7 @@ export async function runMigrations(): Promise<void> {
       t.primary(["user_id", "space_id"]);
       t.index(["space_id"]); // fast subscriber lookup on fan-out
     });
-    console.log("[db] Created notification_subscriptions table");
+    logger.info("[db] Created notification_subscriptions table");
   }
 }
 

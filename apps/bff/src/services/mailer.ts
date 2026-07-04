@@ -1,4 +1,5 @@
 import nodemailer, { type Transporter } from "nodemailer";
+import { logger } from "./logger.js";
 
 // ---------------------------------------------------------------------------
 // SMTP mailer.
@@ -51,8 +52,9 @@ export async function sendMail(mail: Mail): Promise<boolean> {
   const from = process.env.SMTP_FROM ?? "Quorum <no-reply@localhost>";
 
   if (!isConfigured()) {
-    console.log(
-      `[mailer] (mock — SMTP not configured) would email ${mail.to}: "${mail.subject}"`,
+    logger.info(
+      { to: mail.to, subject: mail.subject },
+      "Mailer mock mode (SMTP not configured) — email not sent",
     );
     return true;
   }
@@ -61,7 +63,7 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     await transport().sendMail({ from, ...mail });
     return true;
   } catch (err) {
-    console.error(`[mailer] Failed to send to ${mail.to}:`, err);
+    logger.error({ err, to: mail.to }, "Failed to send email");
     return false;
   }
 }

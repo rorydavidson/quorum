@@ -1,4 +1,5 @@
 import type { DiscoursePost } from "@snomed/types";
+import { logger } from "./logger.js";
 
 // ---------------------------------------------------------------------------
 // Discourse API client
@@ -157,17 +158,18 @@ export async function getDiscourseTopics(
     });
 
     if (!res.ok) {
-      console.warn(
-        `[discourse] API returned ${res.status} for category "${categorySlug}"`,
+      logger.warn(
+        { status: res.status, categorySlug },
+        "Discourse API returned a non-OK status",
       );
       return [];
     }
 
     raw = (await res.json()) as DiscourseLatestResponse;
   } catch (err) {
-    console.warn(
-      `[discourse] Failed to fetch topics for category "${categorySlug}":`,
-      err,
+    logger.warn(
+      { err, categorySlug },
+      "Failed to fetch Discourse topics",
     );
     return [];
   }

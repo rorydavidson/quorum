@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
+import { reqLog } from "../services/logger.js";
 import { requireAuth } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { getSpaces } from '../services/db.js';
@@ -69,7 +70,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
           }
         }
       } catch (err) {
-        console.error(`[search] Drive search failed for space ${space.id}:`, (err as Error).message);
+        reqLog(req).error({ err: (err as Error).message, spaceId: space.id }, "Drive search failed for space");
       }
     }),
 
@@ -108,7 +109,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response): Promise<void> 
           eventResults.push({ type: 'event', data: evt });
         }
       } catch (err) {
-        console.error('[search] Calendar search failed:', (err as Error).message);
+        reqLog(req).error({ err: (err as Error).message }, "Calendar search failed");
       }
     })(),
   ]);

@@ -1,4 +1,5 @@
 import rateLimit, { type Store } from "express-rate-limit";
+import { logger } from "../services/logger.js";
 import { RedisStore, type RedisReply } from "rate-limit-redis";
 import Redis from "ioredis";
 
@@ -32,9 +33,9 @@ function getRedis(): Redis | null {
       maxRetriesPerRequest: 3,
     });
     _redis.on("error", (err) =>
-      console.error("[rate-limit] Redis error:", err.message),
+      logger.error({ err: err.message }, "Redis error"),
     );
-    console.log("[rate-limit] Using Redis-backed store");
+    logger.info("Using Redis-backed rate-limit store");
   }
   return _redis;
 }
