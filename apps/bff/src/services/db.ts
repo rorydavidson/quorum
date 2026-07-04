@@ -5,6 +5,7 @@ import {
   EventMetadata,
   AuditLog,
   HierarchyCategoryConfig,
+  DocumentReader,
 } from "@snomed/types";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,20 @@ export async function runMigrations(): Promise<void> {
       t.integer("sort_order").notNullable().defaultTo(0);
     });
     console.log("[db] Created hierarchy_category_configs table");
+  }
+
+  const hasDocumentReads = await db.schema.hasTable("document_reads");
+  if (!hasDocumentReads) {
+    await db.schema.createTable("document_reads", (t) => {
+      t.string("file_id").notNullable();
+      t.string("space_id").notNullable();
+      t.string("user_id").notNullable();
+      t.string("user_name").notNullable();
+      t.timestamp("read_at").notNullable().defaultTo(db.fn.now());
+      t.primary(["file_id", "user_id"]);
+      t.index(["space_id", "user_id"]); // fast "my reads in this space" lookups
+    });
+    console.log("[db] Created document_reads table");
   }
 }
 
@@ -594,6 +609,78 @@ export async function setCategoryConfigs(
       );
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Document Read Receipts
+// ---------------------------------------------------------------------------
+
+interface DocumentReadRow {
+  file_id: string;
+  space_id: string;
+  user_id: string;
+  user_name: string;
+  read_at: string;
+}
+
+/** Marks a document as read by a user (idempotent — refreshes read_at). */
+export async function markDocumentRead(
+  fileId: string,
+  spaceId: string,
+  userId: string,
+  userName: string,
+): Promise<void> {
+  const existing = await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId, user_id: userId })
+    .first();
+
+  if (existing) {
+    await db<DocumentReadRow>("document_reads")
+      .where({ file_id: fileId, user_id: userId })
+      .update({ read_at: db.fn.now(), space_id: spaceId, user_name: userName });
+  } else {
+    await db<DocumentReadRow>("document_reads").insert({
+      file_id: fileId,
+      space_id: spaceId,
+      user_id: userId,
+      user_name: userName,
+    });
+  }
+}
+
+/** Removes a user's read receipt for a document. */
+export async function unmarkDocumentRead(
+  fileId: string,
+  userId: string,
+): Promise<void> {
+  await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId, user_id: userId })
+    .delete();
+}
+
+/** Returns the set of file IDs a user has marked read within a space. */
+export async function getUserReadFileIds(
+  spaceId: string,
+  userId: string,
+): Promise<string[]> {
+  const rows = await db<DocumentReadRow>("document_reads")
+    .where({ space_id: spaceId, user_id: userId })
+    .select("file_id");
+  return rows.map((r) => r.file_id);
+}
+
+/** Returns everyone who has marked a given document read, most recent first. */
+export async function getDocumentReaders(
+  fileId: string,
+): Promise<DocumentReader[]> {
+  const rows = await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId })
+    .orderBy("read_at", "desc");
+  return rows.map((r) => ({
+    userId: r.user_id,
+    userName: r.user_name,
+    readAt: r.read_at,
+  }));
 }
 
 export default db;

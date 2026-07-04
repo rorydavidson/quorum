@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Folder } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
-import { getSectionFiles, getUserFromHeaders } from '@/lib/api-client';
+import { getSectionFiles, getUserFromHeaders, getSpaceReadFileIds } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SectionWithFiles } from '@/lib/api-client';
 
@@ -21,8 +21,10 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
   let data: SectionWithFiles | null = null;
   let error: string | null = null;
 
+  let readFileIds: string[] = [];
   try {
     data = await getSectionFiles(spaceId, sectionId, cookie, folderId);
+    readFileIds = await getSpaceReadFileIds(spaceId, cookie);
   } catch (err) {
     error = (err as Error).message;
   }
@@ -81,7 +83,7 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} />
+          <DocumentList spaceId={spaceId} sectionId={sectionId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} readFileIds={readFileIds} canViewReaders={isAdmin} />
         </>
       )}
     </div>

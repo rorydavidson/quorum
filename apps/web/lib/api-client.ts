@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig, DocumentReader } from '@snomed/types';
 import { csrfFetch, getCsrfToken } from './csrf';
 
 // ---------------------------------------------------------------------------
@@ -120,6 +120,46 @@ export function fileDownloadUrl(spaceId: string, fileId: string): string {
  */
 export function fileForceDownloadUrl(spaceId: string, fileId: string): string {
   return `/api/documents/${spaceId}/${fileId}/download?download=1`;
+}
+
+// ---------------------------------------------------------------------------
+// Read receipts
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the file IDs the current user has marked as read within a space.
+ * Server-side (pass cookie). Returns [] gracefully on failure.
+ */
+export async function getSpaceReadFileIds(spaceId: string, cookie: string): Promise<string[]> {
+  try {
+    const data = await bffFetch<{ readFileIds: string[] }>(
+      `/documents/${spaceId}/reads`,
+      { cookie, cache: 'no-store' },
+    );
+    return data.readFileIds;
+  } catch {
+    return [];
+  }
+}
+
+/** Mark a document as read by the current user (client-side). */
+export async function markDocumentRead(spaceId: string, fileId: string): Promise<void> {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}/read`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to mark as read');
+}
+
+/** Clear the current user's read receipt for a document (client-side). */
+export async function unmarkDocumentRead(spaceId: string, fileId: string): Promise<void> {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}/read`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to update read status');
+}
+
+/** Admin/secretariat: fetch everyone who has read a document (client-side). */
+export async function getDocumentReaders(spaceId: string, fileId: string): Promise<DocumentReader[]> {
+  const res = await fetch(`/api/documents/${spaceId}/${fileId}/readers`);
+  if (!res.ok) throw new Error('Failed to load readers');
+  const data = await res.json() as { readers: DocumentReader[] };
+  return data.readers;
 }
 
 // ---------------------------------------------------------------------------

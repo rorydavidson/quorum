@@ -128,3 +128,10 @@ export interface AuditLog {
   entityId: string;
   details?: string; // JSON string
 }
+
+/** A record that a user has marked a document as read. */
+export interface DocumentReader {
+  userId: string;
+  userName: string;
+  readAt: string; // ISO 8601
+}

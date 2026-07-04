@@ -13,6 +13,11 @@ vi.mock('../services/db.js', () => ({
   getSpaceById: vi.fn(),
   getSectionById: vi.fn(),
   createAuditLog: vi.fn().mockResolvedValue(undefined),
+  getCategoryConfigs: vi.fn().mockResolvedValue([]),
+  markDocumentRead: vi.fn().mockResolvedValue(undefined),
+  unmarkDocumentRead: vi.fn().mockResolvedValue(undefined),
+  getUserReadFileIds: vi.fn().mockResolvedValue([]),
+  getDocumentReaders: vi.fn().mockResolvedValue([]),
   default: {},
 }));
 
@@ -372,5 +377,74 @@ describe('POST /documents/:spaceId/upload — upload permission', () => {
       });
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('SPACE_NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read receipts
+// ---------------------------------------------------------------------------
+
+describe('Documents routes — read receipts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(boardSpace);
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(true);
+    vi.mocked(db.getUserReadFileIds).mockResolvedValue(['file-1']);
+    vi.mocked(db.getDocumentReaders).mockResolvedValue([
+      { userId: 'board-1', userName: 'Board Member', readAt: '2026-07-04 09:00:00' },
+    ]);
+  });
+
+  it('GET /:spaceId/reads returns the caller\'s read file IDs', async () => {
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board/reads');
+    expect(res.status).toBe(200);
+    expect(res.body.readFileIds).toEqual(['file-1']);
+    expect(db.getUserReadFileIds).toHaveBeenCalledWith('board', 'board-1');
+  });
+
+  it('POST /:spaceId/:fileId/read marks a document read for the caller', async () => {
+    const app = await createApp(boardUser);
+    const res = await request(app).post('/documents/board/file-1/read');
+    expect(res.status).toBe(204);
+    expect(db.markDocumentRead).toHaveBeenCalledWith('file-1', 'board', 'board-1', 'Board Member');
+  });
+
+  it('POST read is denied for a user outside the space', async () => {
+    const app = await createApp(outsiderUser);
+    const res = await request(app).post('/documents/board/file-1/read');
+    expect(res.status).toBe(403);
+    expect(db.markDocumentRead).not.toHaveBeenCalled();
+  });
+
+  it('POST read rejects a file outside the space tree', async () => {
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(false);
+    const app = await createApp(boardUser);
+    const res = await request(app).post('/documents/board/foreign/read');
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FILE_OUTSIDE_SPACE');
+    expect(db.markDocumentRead).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /:spaceId/:fileId/read clears the caller\'s receipt', async () => {
+    const app = await createApp(boardUser);
+    const res = await request(app).delete('/documents/board/file-1/read');
+    expect(res.status).toBe(204);
+    expect(db.unmarkDocumentRead).toHaveBeenCalledWith('file-1', 'board-1');
+  });
+
+  it('GET /:spaceId/:fileId/readers is admin-only', async () => {
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board/file-1/readers');
+    expect(res.status).toBe(403);
+    expect(db.getDocumentReaders).not.toHaveBeenCalled();
+  });
+
+  it('GET /:spaceId/:fileId/readers returns readers for an admin', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/documents/board/file-1/readers');
+    expect(res.status).toBe(200);
+    expect(res.body.readers).toHaveLength(1);
+    expect(res.body.readers[0].userName).toBe('Board Member');
   });
 });
