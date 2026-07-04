@@ -23,12 +23,14 @@
     "express-session": "^1.18.1",
     "googleapis": "^148.0.0",
     "helmet": "^8.1.0",
+    "ioredis": "^5.11.1",
     "knex": "^3.1.0",
     "multer": "^2.0.2",
     "node-ical": "^0.25.4",
     "nodemailer": "^9.0.3",
     "openid-client": "^5.7.1",
     "pg": "^8.19.0",
+    "rate-limit-redis": "^5.0.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

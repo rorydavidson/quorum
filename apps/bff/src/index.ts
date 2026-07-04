@@ -18,7 +18,7 @@ import searchRouter from "./routes/search.js";
 import eventsRouter from "./routes/events.js";
 import forumRouter from "./routes/forum.js";
 import notificationsRouter from "./routes/notifications.js";
-import { globalLimiter, authLimiter, searchLimiter } from "./middleware/rateLimiter.js";
+import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 
 // ---------------------------------------------------------------------------
@@ -238,10 +238,11 @@ async function start(): Promise<void> {
     console.log(`[shutdown] ${signal} received — draining connections...`);
     server.close(async () => {
       try {
+        await closeRateLimiterRedis();
         await db.destroy();
-        console.log("[shutdown] DB connections closed. Exiting.");
+        console.log("[shutdown] DB & Redis connections closed. Exiting.");
       } catch (err) {
-        console.error("[shutdown] Error closing DB:", err);
+        console.error("[shutdown] Error closing connections:", err);
       }
       process.exit(0);
     });
