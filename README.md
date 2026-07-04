@@ -17,9 +17,11 @@ A bespoke governance portal replacing use of services like Atlassian Confluence 
 - **Forum discussions** — recent Discourse topics per space, surfaced inline from `forums.snomed.org` (configurable per environment via `DISCOURSE_URL`); graceful degradation if the forum is unreachable
 - **Unified search** — full-text search across Drive documents, calendar events, and event metadata via ⌘K command palette
 - **Admin dashboard** — portal admins can create and configure spaces, document sections, and view system-wide audit logs
-- **Comprehensive Audit Logging** — every state-changing action is recorded (who, what, when, details) and viewable by admins
+- **Comprehensive Audit Logging** — every state-changing action is recorded (who, what, when, details) and viewable by admins, with filtering (action, entity, user, date range), pagination, and CSV export
+- **Read receipts** — members can mark documents as read; admins/secretariat can see who has read each document ("who is prepared")
+- **Email notifications ("Notify me")** — members opt in per space and are emailed when a new document, Official Record, or meeting document lands (SMTP-backed; logs in mock mode when SMTP is unconfigured)
 - **Official Records** — files prefixed with `_OFFICIAL_RECORD_` are tagged distinctly in listings and search
-- **Mock mode** — runs fully without Google credentials, using sample data, for UI development
+- **Mock mode** — runs fully without Google credentials (and without SMTP), using sample data, for UI development
 
 ---
 
@@ -40,13 +42,15 @@ BFF / Backend-for-Frontend (port 3001)
   · Express server
   · Manages Keycloak OIDC tokens (never exposed to browser)
   · Calls Google APIs via Service Account (credentials never in browser)
-  · Stores space/section config & audit logs in SQLite (dev) or PostgreSQL (prod)
+  · Stores config, audit logs, read receipts & subscriptions in SQLite (dev) or PostgreSQL (prod)
       │
       ├──► Keycloak — OIDC auth
       ├──► Google Drive API — list, search & stream documents; upload
       ├──► Google Calendar API / iCal — upcoming meetings
       ├──► Discourse API — recent forum topics per space (public or private categories)
-      └──► SQLite / PostgreSQL — configuration & audit trail
+      ├──► SQLite / PostgreSQL — configuration & audit trail
+      ├──► Redis — shared rate-limit counters (optional; in-memory fallback)
+      └──► SMTP — email notifications for "Notify me" subscribers (optional)
 ```
 
 **Security principle:** Keycloak tokens and Google Service Account credentials never leave the BFF. The browser only holds an httpOnly session cookie. All internal communication between Next.js and BFF uses encoded headers to maintain data integrity.
@@ -66,9 +70,11 @@ BFF / Backend-for-Frontend (port 3001)
 - **Header Encoding**: User metadata (name, email, groups) is Base64 encoded when passed from the Next.js middleware to the BFF. This prevents header-injection vulnerabilities and safely handles Unicode/special characters in user names.
 - **Unified Error Handling**: A global JSON error handler in the BFF ensures that all API failures return consistent, helpful responses to the frontend.
 - **Proxy Body Integrity**: Next.js API routes use `duplex: 'half'` streaming for POST requests, ensuring multipart/form-data (uploads) is forwarded correctly without corruption.
-- **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 30 req/min for auth, 20 req/min for search, 10 req/min for uploads). Responses include standard `RateLimit-*` headers.
-- **CSRF Protection**: State-changing endpoints (`/documents`, `/admin`, `/events`) require a `x-csrf-token` header on POST/PUT/DELETE requests. The frontend fetches a per-session token from `GET /csrf-token` and includes it in mutating requests.
-- **Folder Ancestry Verification**: User-supplied `folderId` parameters are validated against the space's Drive folder tree to prevent cross-space document access (IDOR protection). File downloads and deletions also verify the file belongs to the authorised space.
+- **Rate Limiting**: All endpoints are rate-limited per IP (100 req/min global, 30 req/min for auth, 20 req/min for search, 10 req/min for uploads). Responses include standard `RateLimit-*` headers. Counters are stored in **Redis** when `REDIS_URL` is set, so limits hold consistently across multiple instances; without it, an in-memory store is used (single instance only).
+- **CSRF Protection**: State-changing endpoints (`/documents`, `/admin`, `/events`, `/notifications`) require a `x-csrf-token` header on POST/PUT/DELETE requests. The frontend fetches a per-session token from `GET /csrf-token`, caches it, and attaches it to every mutating request (with a one-shot refresh if the token is rejected).
+- **Route Error Boundaries**: Every portal route segment has an `error.tsx` and `loading.tsx` (plus a root `global-error.tsx` and `not-found.tsx`), so transient BFF/Drive failures render a calm retry UI rather than a broken screen.
+- **Input Validation**: Admin forms, event metadata, and audit-log queries are validated with Zod before use; `icalUrl` values are restricted to `https` to reduce SSRF surface.
+- **Folder Ancestry Verification**: User-supplied `folderId` parameters are validated against the space's Drive folder tree to prevent cross-space document access (IDOR protection). File downloads, deletions, Official Record snapshots, and read-receipt marking also verify the file belongs to the authorised space.
 
 ---
 
@@ -120,33 +126,42 @@ quorum/
 │   │   │   └── api/            # Next.js API routes (streaming proxies to BFF)
 │   │   ├── components/
 │   │   │   ├── layout/         # Shell, Sidebar, SpaceNav, MobileHeader
-│   │   │   ├── documents/      # DocumentList, PDFViewer, UploadButton
+│   │   │   ├── documents/      # DocumentList (+ read receipts), PDFViewer, UploadButton
 │   │   │   ├── calendar/       # CalendarWidget, EventCard
 │   │   │   ├── forum/          # ForumWidget — Discourse topics per space
-│   │   │   └── admin/          # AdminShell (CRUD + Audit View)
+│   │   │   ├── notifications/  # NotifyMeButton — per-space email opt-in
+│   │   │   ├── common/         # ErrorState, LoadingState, FormattedText (sanitised)
+│   │   │   └── admin/          # AdminShell (CRUD + Audit View with filters/export)
 │   │   └── lib/
 │   │   │   ├── auth.ts         # getUser() — decodes user from headers
-│   │   │   └── api-client.ts   # Typed BFF fetch wrapper
+│   │   │   ├── api-client.ts   # Typed BFF fetch wrapper
+│   │   │   ├── csrf.ts         # CSRF token fetch/cache + csrfFetch wrapper
+│   │   │   └── bff.ts          # Shared proxy header builder (cookie + CSRF)
 │   │   └── middleware.ts       # Auth guard & User header injection
+│   │   #  (each route segment also has error.tsx / loading.tsx boundaries)
 │   │
 │   └── bff/                    # Backend for Frontend (Express)
 │       └── src/
 │           ├── routes/
 │           │   ├── auth.ts      # OIDC flow & session lifecycle
-│           │   ├── documents.ts # List, download, upload (streaming)
+│           │   ├── documents.ts # List, download, upload (streaming) + read receipts
 │           │   ├── events.ts    # Meeting doc linking & agenda management
 │           │   ├── forum.ts     # Discourse topics by spaceId or aggregate
 │           │   ├── search.ts    # Unified Drive + calendar search
-│           │   └── admin.ts     # CRUD + Audit retrieval + Backup/Restore
+│           │   ├── notifications.ts # "Notify me" subscription management
+│           │   └── admin.ts     # CRUD + Audit (filter/CSV) + Backup/Restore
 │           ├── middleware/
-│           │   ├── rateLimiter.ts  # Per-endpoint rate limiting
+│           │   ├── rateLimiter.ts  # Per-endpoint rate limiting (Redis or in-memory)
 │           │   └── csrf.ts        # CSRF token generation & validation
 │           ├── utils/
-│           │   └── ttlCache.ts    # TTL cache for Drive API responses
+│           │   ├── ttlCache.ts    # TTL cache for Drive API responses
+│           │   └── rbac.ts        # Shared group/access helpers (single source of truth)
 │           └── services/
 │               ├── drive.ts     # Google Drive Service Account client (with caching)
 │               ├── discourse.ts # Discourse public API client (mock-aware)
-│               ├── db.ts        # Knex migrations & Audit Log service
+│               ├── mailer.ts    # SMTP mailer (nodemailer; mock/log mode)
+│               ├── notifications.ts # Records activity & emails subscribers
+│               ├── db.ts        # Knex migrations, audit/read-receipt/subscription services
 │
 └── packages/
     └── types/                  # Shared types (AuditLog, EventMetadata, etc.)
@@ -376,6 +391,22 @@ DISCOURSE_URL=https://forums.snomed.org
 
 # ── Database Pool ────────────────────────────────────────────────────────────
 # DB_POOL_MAX=25                 # max PostgreSQL connections
+
+# ── Rate limiting store (optional) ───────────────────────────────────────────
+# Share rate-limit counters across instances via Redis. Omit for an in-memory
+# store (fine for single-instance / local dev). Docker Compose sets this to
+# redis://redis:6379 automatically.
+# REDIS_URL=redis://localhost:6379
+
+# ── Email notifications (SMTP, optional) ─────────────────────────────────────
+# Used by the "Notify me" feature. If SMTP_HOST is unset the mailer runs in
+# mock mode (logs the email it would send instead of dialling out).
+# SMTP_HOST=smtp.example.com
+# SMTP_PORT=587
+# SMTP_SECURE=false              # true for implicit TLS (usually port 465)
+# SMTP_USER=<smtp-username>
+# SMTP_PASS=<smtp-password>
+# SMTP_FROM=Quorum <no-reply@example.com>
 ```
 
 ### `apps/web/.env.local`
@@ -431,6 +462,13 @@ The **Audit Log** tab provides a real-time feed of all modifications:
 - **Who**: Unique Keycloak identifier and display name.
 - **Action**: Categorised actions (e.g., `CREATE_SPACE`, `UPLOAD_DOCUMENT`, `DELETE_EVENT_AGENDA`).
 - **Details**: Click the **Info** icon to view the exact JSON payload of the change.
+- **Filtering & export**: Narrow the feed by action, entity type, user, and date range; page through results with **Load more**; and **Export CSV** to download the filtered set for compliance or record-keeping.
+
+### Read Receipts
+On any document list, members can mark a document as **read** (the toggle in the *Read* column). Admins and secretariat see a **Read by** control per document showing who has read it and when — useful for confirming a board is prepared ahead of a meeting.
+
+### Notifications ("Notify me")
+Each space page has a **Notify me** button. When a member opts in, their account email is captured and they are emailed whenever a new document, Official Record, or linked meeting document lands in that space. Delivery requires SMTP to be configured (see `SMTP_*` in the environment variables); without it the mailer logs instead of sending. Agenda-item edits are intentionally *not* notified to avoid noise.
 
 ### Backup & Restore
 Admins can **Export** the entire portal configuration as a JSON file and **Import** it to restore or migrate settings.
@@ -455,7 +493,8 @@ nginx container (port 80, + port 443 in production)
                           │
                           └── server-side → bff:3001
                                               │
-                                              └── postgres:5432
+                                              ├── postgres:5432
+                                              └── redis:6379   (rate-limit store)
 
 certbot (production only) — renews Let's Encrypt certs every 12 h
 ```
@@ -508,7 +547,9 @@ Fill in every `CHANGE_ME` value:
 | `GOOGLE_PROJECT_ID` | From the GCP Service Account JSON |
 | `DISCOURSE_URL` | Your Discourse forum base URL |
 
-> **Note:** `DATABASE_URL`, `PORT`, `NODE_ENV`, `FRONTEND_ORIGIN`, and `COOKIE_SECURE` are injected by `docker-compose.yml` from the root `.env` and must **not** be duplicated in `bff.env` — `docker-compose.yml` environment values take precedence over `env_file` values.
+To enable **email notifications** in Docker, add the `SMTP_*` variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) to `deploy/docker/bff.env`. Without them the "Notify me" feature runs in mock mode (logs instead of sending).
+
+> **Note:** `DATABASE_URL`, `REDIS_URL`, `PORT`, `NODE_ENV`, `FRONTEND_ORIGIN`, and `COOKIE_SECURE` are injected by `docker-compose.yml` from the root `.env` and must **not** be duplicated in `bff.env` — `docker-compose.yml` environment values take precedence over `env_file` values. A `redis` service is started automatically and the BFF uses it for shared rate-limit counters.
 
 ### Step 4: Configure `deploy/docker/web.env`
 
@@ -622,7 +663,7 @@ $COMPOSE build web bff && $COMPOSE up -d
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | Base stack — local dev, HTTP only (postgres, bff, web, nginx) |
+| `docker-compose.yml` | Base stack — local dev, HTTP only (postgres, redis, bff, web, nginx) |
 | `docker-compose.prod.yml` | Production overlay — adds HTTPS port, certbot, Let's Encrypt volume |
 | `apps/bff/Dockerfile` | Multi-stage BFF build (pnpm deploy + tsc) |
 | `apps/web/Dockerfile` | Multi-stage Next.js standalone build |
@@ -790,7 +831,8 @@ curl http://127.0.0.1:3001/health
 - **RBAC Enforcement**: Permissions (Read, Upload, Admin) are validated at the BFF layer using the signed `groups` claim.
 - **Header Integrity**: User metadata is Base64 encoded in internal headers to prevent injection and safely handle special characters.
 - **Google Doc Proxying**: Google Docs linked to events are exported as PDF by the BFF, bypassing firewall restrictions for users unable to access Google domains.
-- **CSRF Tokens**: All state-changing requests to `/documents`, `/admin`, and `/events` require a valid `x-csrf-token` header. Tokens are per-session and retrieved via `GET /csrf-token`. GET/HEAD/OPTIONS requests are exempt.
-- **Rate Limiting**: Per-IP rate limits protect against automated abuse. Limits are applied globally (100/min) and with tighter thresholds on auth (30/min), search (20/min), and upload (10/min) endpoints. Rate-limited requests receive a `429 Too Many Requests` response.
-- **Folder/File Ancestry Verification**: When a user supplies a `folderId` query parameter, the BFF walks the Google Drive parent chain to verify the folder is a descendant of the space's configured root folder. File downloads and deletions similarly verify file ownership. This prevents authenticated users from accessing documents in spaces they are not authorised for.
+- **CSRF Tokens**: All state-changing requests to `/documents`, `/admin`, `/events`, and `/notifications` require a valid `x-csrf-token` header. Tokens are per-session and retrieved via `GET /csrf-token`. GET/HEAD/OPTIONS requests are exempt.
+- **Rate Limiting**: Per-IP rate limits protect against automated abuse. Limits are applied globally (100/min) and with tighter thresholds on auth (30/min), search (20/min), and upload (10/min) endpoints. Rate-limited requests receive a `429 Too Many Requests` response. When `REDIS_URL` is configured the counters are shared through Redis so limits hold across multiple instances; otherwise an in-memory store is used.
+- **Folder/File Ancestry Verification**: When a user supplies a `folderId` query parameter, the BFF walks the Google Drive parent chain to verify the folder is a descendant of the space's configured root folder. File downloads, deletions, Official Record snapshots, and read-receipt marking similarly verify file ownership. This prevents authenticated users from accessing documents in spaces they are not authorised for.
+- **Email Privacy**: "Notify me" subscriptions store the member's own session email only; there is no external directory lookup. Notification emails are sent to a space's opt-in subscribers, excluding the actor who triggered the event.
 - **Session Store Safety**: In production, sessions are stored in PostgreSQL. If `DATABASE_URL` is not a PostgreSQL connection string, the BFF logs a warning about falling back to the in-memory session store (which does not scale and loses sessions on restart).

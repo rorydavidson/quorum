@@ -14,7 +14,7 @@
 # Architecture:
 #   nginx (port 80) → /auth/* → bff:3001
 #                   → /*     → web:3000
-#   bff:3001        → postgres:5432
+#   bff:3001        → postgres:5432, redis:6379
 
 services:
   postgres:
@@ -34,6 +34,22 @@ services:
     networks:
       - internal
 
+  # Shared store for rate-limit counters (and available for future caching).
+  # Keeps limits consistent when the bff runs as more than one instance.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
   bff:
     build:
       context: .
@@ -45,12 +61,15 @@ services:
       PORT: "3001"
       NODE_ENV: production
       DATABASE_URL: postgresql://quorum:${POSTGRES_PASSWORD:-quorum_dev_only}@postgres:5432/quorum
+      REDIS_URL: redis://redis:6379
       FRONTEND_ORIGIN: ${PUBLIC_URL:-http://localhost}
       # Set to "true" only when TLS is enabled. Browsers reject Secure cookies
       # over plain HTTP, which breaks the OIDC login flow.
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - internal
@@ -92,6 +111,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   certbot_webroot:
 
 networks:

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getEventMetadata, upsertEventMetadata, getSpaceById, createAuditLog } from "../services/db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { userCanAccessSpace, isAdminUser } from "./documents.js";
+import { userCanAccessSpace, isAdminUser } from "../utils/rbac.js";
+import { notifyActivity } from "../services/notifications.js";
 
 const router: IRouter = Router();
 
@@ -154,6 +155,21 @@ router.post(
                 updates: payload
             })
         });
+
+        // Only notify when a meeting document is linked/changed — the "pack is
+        // ready" signal. Agenda-item ticks are too noisy to email on.
+        if (action === "UPDATE_EVENT_DOC" && payload.googleDocUrl) {
+            void notifyActivity({
+                spaceId: space.id,
+                spaceName: space.name,
+                type: "EVENT_UPDATED",
+                title: "Meeting document linked",
+                link: `/spaces/${space.id}/events/${eventId}`,
+                entityId: eventId,
+                actorName: user.name,
+                actorUserId: user.sub,
+            });
+        }
 
         res.json(updated);
     }),

@@ -1,4 +1,5 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig, DocumentReader } from '@snomed/types';
+import { csrfFetch, getCsrfToken } from './csrf';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -119,6 +120,73 @@ export function fileDownloadUrl(spaceId: string, fileId: string): string {
  */
 export function fileForceDownloadUrl(spaceId: string, fileId: string): string {
   return `/api/documents/${spaceId}/${fileId}/download?download=1`;
+}
+
+// ---------------------------------------------------------------------------
+// Read receipts
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the file IDs the current user has marked as read within a space.
+ * Server-side (pass cookie). Returns [] gracefully on failure.
+ */
+export async function getSpaceReadFileIds(spaceId: string, cookie: string): Promise<string[]> {
+  try {
+    const data = await bffFetch<{ readFileIds: string[] }>(
+      `/documents/${spaceId}/reads`,
+      { cookie, cache: 'no-store' },
+    );
+    return data.readFileIds;
+  } catch {
+    return [];
+  }
+}
+
+/** Mark a document as read by the current user (client-side). */
+export async function markDocumentRead(spaceId: string, fileId: string): Promise<void> {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}/read`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to mark as read');
+}
+
+/** Clear the current user's read receipt for a document (client-side). */
+export async function unmarkDocumentRead(spaceId: string, fileId: string): Promise<void> {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}/read`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to update read status');
+}
+
+/** Admin/secretariat: fetch everyone who has read a document (client-side). */
+export async function getDocumentReaders(spaceId: string, fileId: string): Promise<DocumentReader[]> {
+  const res = await fetch(`/api/documents/${spaceId}/${fileId}/readers`);
+  if (!res.ok) throw new Error('Failed to load readers');
+  const data = await res.json() as { readers: DocumentReader[] };
+  return data.readers;
+}
+
+// ---------------------------------------------------------------------------
+// Notification subscriptions ("Notify me")
+// ---------------------------------------------------------------------------
+
+/** The space IDs the current user is subscribed to (client-side). */
+export async function getSubscribedSpaceIds(): Promise<string[]> {
+  const res = await fetch('/api/notifications/subscriptions');
+  if (!res.ok) throw new Error('Failed to load subscriptions');
+  const data = await res.json() as { subscriptions: { spaceId: string }[] };
+  return data.subscriptions.map((s) => s.spaceId);
+}
+
+/** Subscribe to a space's email notifications (client-side). */
+export async function subscribeToSpaceNotifications(spaceId: string): Promise<void> {
+  const res = await csrfFetch(`/api/notifications/subscriptions/${spaceId}`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to subscribe' })) as { error?: string };
+    throw new Error(err.error ?? 'Failed to subscribe');
+  }
+}
+
+/** Unsubscribe from a space's email notifications (client-side). */
+export async function unsubscribeFromSpaceNotifications(spaceId: string): Promise<void> {
+  const res = await csrfFetch(`/api/notifications/subscriptions/${spaceId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unsubscribe');
 }
 
 // ---------------------------------------------------------------------------
@@ -265,13 +333,16 @@ export interface UploadProgress {
  * Returns the newly-created DriveFile on success.
  * `onProgress` is called periodically with the upload percentage.
  */
-export function uploadFileToSpace(
+export async function uploadFileToSpace(
   spaceId: string,
   file: File,
   sectionId?: string,
   folderId?: string,
   onProgress?: (p: UploadProgress) => void
 ): Promise<DriveFile> {
+  // Obtain the CSRF token before opening the request so it can be sent as a header.
+  const csrfToken = await getCsrfToken();
+
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append('file', file);
@@ -282,6 +353,7 @@ export function uploadFileToSpace(
     else if (sectionId) url.searchParams.set('sectionId', sectionId);
 
     xhr.open('POST', url.toString());
+    xhr.setRequestHeader('x-csrf-token', csrfToken);
 
     if (onProgress) {
       xhr.upload.addEventListener('progress', (e) => {
@@ -325,7 +397,7 @@ export async function createOfficialRecord(
   fileId: string,
   fileName: string,
 ): Promise<DriveFile> {
-  const res = await fetch(
+  const res = await csrfFetch(
     `/api/admin/spaces/${spaceId}/files/${fileId}/snapshot`,
     {
       method: 'POST',
@@ -346,7 +418,7 @@ export async function createOfficialRecord(
  * Delete a file from a space.
  */
 export async function deleteFileFromSpace(spaceId: string, fileId: string): Promise<void> {
-  const res = await fetch(`/api/documents/${spaceId}/${fileId}`, {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}`, {
     method: 'DELETE',
   });
 
@@ -370,7 +442,7 @@ export async function createFolderInSpace(
   if (folderId) url.searchParams.set('folderId', folderId);
   else if (sectionId) url.searchParams.set('sectionId', sectionId);
 
-  const res = await fetch(url.toString(), {
+  const res = await csrfFetch(url.toString(), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -406,7 +478,7 @@ export async function updateEventMetadata(
   eventId: string,
   payload: Partial<Omit<EventMetadata, 'id' | 'spaceId'>>
 ): Promise<EventMetadata> {
-  const res = await fetch(`/api/events/${spaceId}/${eventId}`, {
+  const res = await csrfFetch(`/api/events/${spaceId}/${eventId}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),

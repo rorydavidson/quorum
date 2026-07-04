@@ -9,11 +9,13 @@ async function proxyToBff(
     const { spaceId, eventId } = await params;
     const url = `${BFF_URL}/events/${spaceId}/${eventId}`;
 
+    const csrf = request.headers.get("x-csrf-token");
     const bffResponse = await fetch(url, {
         method: request.method,
         headers: {
             cookie: request.headers.get("cookie") ?? "",
             "content-type": "application/json",
+            ...(csrf ? { "x-csrf-token": csrf } : {}),
         },
         body: request.method !== "GET" && request.method !== "HEAD"
             ? await request.text()

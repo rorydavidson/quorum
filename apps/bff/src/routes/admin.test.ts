@@ -23,7 +23,18 @@ vi.mock('../services/db.js', () => ({
   default: {},
 }));
 
+// Mock the Drive service so snapshot tests never hit Google APIs.
+vi.mock('../services/drive.js', () => ({
+  copyFileInDrive: vi.fn(),
+  verifyFileAncestry: vi.fn(),
+}));
+
+vi.mock('../services/notifications.js', () => ({
+  notifyActivity: vi.fn().mockResolvedValue(0),
+}));
+
 import * as db from '../services/db.js';
+import * as drive from '../services/drive.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -429,5 +440,176 @@ describe('DELETE /admin/spaces/:spaceId/sections/:sectionId', () => {
     const res = await request(app).delete('/admin/spaces/board/sections/agenda');
     expect(res.status).toBe(204);
     expect(db.deleteSection).toHaveBeenCalledWith('board', 'agenda');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Official Record snapshot — POST /admin/spaces/:spaceId/files/:fileId/snapshot
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — Official Record snapshot', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(mockSpace);
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(true);
+    vi.mocked(drive.copyFileInDrive).mockResolvedValue({
+      id: 'copy-1',
+      name: '_OFFICIAL_RECORD_2026-07-04_Report.pdf',
+      mimeType: 'application/pdf',
+      size: 0.5,
+      createdTime: '2026-07-04T00:00:00Z',
+      modifiedTime: '2026-07-04T00:00:00Z',
+      isOfficialRecord: true,
+    });
+  });
+
+  it('copies the file when it belongs to the space', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(201);
+    expect(drive.verifyFileAncestry).toHaveBeenCalledWith('file-9', 'folder-1');
+    expect(drive.copyFileInDrive).toHaveBeenCalled();
+  });
+
+  it('rejects with 403 when the file is outside the space tree', async () => {
+    vi.mocked(drive.verifyFileAncestry).mockResolvedValue(false);
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/foreign-file/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FILE_OUTSIDE_SPACE');
+    expect(drive.copyFileInDrive).not.toHaveBeenCalled();
+  });
+
+  it('rejects re-snapshotting an existing Official Record', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: '_OFFICIAL_RECORD_2025-01-01_Report.pdf' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ALREADY_OFFICIAL_RECORD');
+    expect(drive.copyFileInDrive).not.toHaveBeenCalled();
+  });
+
+  it('requires admin', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app)
+      .post('/admin/spaces/board/files/file-9/snapshot')
+      .send({ fileName: 'Report.pdf' });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit logs — filtering, pagination & CSV export
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — audit logs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getAuditLogs).mockResolvedValue([]);
+  });
+
+  it('passes parsed filters through to getAuditLogs', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get(
+      '/admin/audit-logs?action=DELETE_SPACE&entityType=SPACE&user=admin&from=2026-01-01&to=2026-12-31&limit=50&offset=10',
+    );
+
+    expect(res.status).toBe(200);
+    expect(db.getAuditLogs).toHaveBeenCalledWith({
+      action: 'DELETE_SPACE',
+      entityType: 'SPACE',
+      user: 'admin',
+      from: '2026-01-01',
+      to: '2026-12-31',
+      limit: 50,
+      offset: 10,
+    });
+  });
+
+  it('treats empty query params as no filter', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs?action=&user=');
+    expect(res.status).toBe(200);
+    expect(db.getAuditLogs).toHaveBeenCalledWith({});
+  });
+
+  it('rejects a malformed date with 400', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs?from=07-04-2026');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_PAYLOAD');
+    expect(db.getAuditLogs).not.toHaveBeenCalled();
+  });
+
+  it('exports CSV with headers and RFC-4180 escaping', async () => {
+    vi.mocked(db.getAuditLogs).mockResolvedValue([
+      {
+        id: 1,
+        timestamp: '2026-07-04 09:00:00',
+        userId: 'u1',
+        userName: 'Ada Lovelace',
+        action: 'UPLOAD_DOCUMENT',
+        entityType: 'DOCUMENT',
+        entityId: 'file-1',
+        details: '{"name":"Q1, Report","note":"has \\"quotes\\""}',
+      },
+    ]);
+
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs/export');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('attachment');
+    expect(res.text.split('\r\n')[0]).toBe(
+      'timestamp,userName,userId,action,entityType,entityId,details',
+    );
+    // details contains a comma and quotes → must be wrapped and quotes doubled
+    expect(res.text).toContain('"{""name"":""Q1, Report""');
+  });
+
+  it('export requires admin', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).get('/admin/audit-logs/export');
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// icalUrl validation — POST /admin/spaces
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — icalUrl scheme validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(undefined);
+    vi.mocked(db.upsertSpace).mockResolvedValue(mockSpace);
+  });
+
+  it('accepts an https icalUrl', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces')
+      .send({ ...validSpacePayload, icalUrl: 'https://calendar.example/feed.ics' });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects a non-https (http) icalUrl', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/admin/spaces')
+      .send({ ...validSpacePayload, icalUrl: 'http://169.254.169.254/latest/meta-data/' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_PAYLOAD');
+    expect(db.upsertSpace).not.toHaveBeenCalled();
   });
 });

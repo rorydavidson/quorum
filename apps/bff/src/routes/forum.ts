@@ -3,26 +3,13 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { getSpaces, getSpaceById } from '../services/db.js';
 import { getDiscourseTopics } from '../services/discourse.js';
+import { isAdminUser, userCanAccessSpace } from '../utils/rbac.js';
 import type { DiscoursePost } from '@snomed/types';
 
 const router: IRouter = Router();
 
 // All forum routes require an active session
 router.use(requireAuth);
-
-// ---------------------------------------------------------------------------
-// Helpers (same pattern as calendar.ts)
-// ---------------------------------------------------------------------------
-
-function isAdminUser(groups: string[]): boolean {
-  return groups.some((g) => g === 'portal_admin' || g === '/portal_admin');
-}
-
-function userCanAccessSpace(userGroups: string[], spaceGroup: string): boolean {
-  return userGroups.some(
-    (g) => g === spaceGroup || g === spaceGroup.replace(/^\//, '') || `/${g}` === spaceGroup
-  );
-}
 
 // ---------------------------------------------------------------------------
 // GET /forum

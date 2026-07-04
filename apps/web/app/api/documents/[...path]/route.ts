@@ -26,6 +26,12 @@ async function handler(
     forwardHeaders['content-type'] = contentType;
   }
 
+  // Forward the CSRF token so the BFF's csrfProtection accepts state-changing requests
+  const csrf = request.headers.get('x-csrf-token');
+  if (csrf) {
+    forwardHeaders['x-csrf-token'] = csrf;
+  }
+
   const bffRes = await fetch(bffUrl, {
     method: request.method,
     headers: forwardHeaders,

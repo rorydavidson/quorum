@@ -8,6 +8,7 @@ import session from "express-session";
 import helmet from "helmet";
 import connectPgSimple from "connect-pg-simple";
 import { initKeycloak } from "./services/keycloak.js";
+import { checkDriveAccess } from "./services/drive.js";
 import db, { runMigrations, isPostgresDb } from "./services/db.js";
 import authRouter from "./routes/auth.js";
 import documentsRouter from "./routes/documents.js";
@@ -16,7 +17,8 @@ import calendarRouter from "./routes/calendar.js";
 import searchRouter from "./routes/search.js";
 import eventsRouter from "./routes/events.js";
 import forumRouter from "./routes/forum.js";
-import { globalLimiter, authLimiter, searchLimiter } from "./middleware/rateLimiter.js";
+import notificationsRouter from "./routes/notifications.js";
+import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ app.get("/csrf-token", (req, res) => {
 app.use("/documents", csrfProtection);
 app.use("/admin", csrfProtection);
 app.use("/events", csrfProtection);
+app.use("/notifications", csrfProtection);
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -130,13 +133,12 @@ app.use(globalLimiter);
 // ---------------------------------------------------------------------------
 
 app.get("/health", async (_req, res) => {
+  // The DB is the hard dependency: if it's down we're not ready (503).
+  // Drive reachability is reported as a diagnostic but does not fail the probe —
+  // individual document routes already degrade to 502 on Drive errors, and in
+  // dev/mock mode Drive is intentionally unconfigured.
   try {
     await db.raw("SELECT 1");
-    res.json({
-      status: "ok",
-      service: "bff",
-      timestamp: new Date().toISOString(),
-    });
   } catch (err) {
     console.error("[health] DB check failed:", err);
     res.status(503).json({
@@ -145,7 +147,19 @@ app.get("/health", async (_req, res) => {
       error: "Database unreachable",
       timestamp: new Date().toISOString(),
     });
+    return;
   }
+
+  const driveOk = await checkDriveAccess().catch(() => false);
+  res.json({
+    status: "ok",
+    service: "bff",
+    dependencies: {
+      database: "ok",
+      drive: driveOk ? "ok" : "unavailable",
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/auth", authLimiter, authRouter);
@@ -155,6 +169,7 @@ app.use("/calendar", calendarRouter);
 app.use("/search", searchLimiter, searchRouter);
 app.use("/events", eventsRouter);
 app.use("/forum", forumRouter);
+app.use("/notifications", notificationsRouter);
 
 // ---------------------------------------------------------------------------
 // Global Error Handler
@@ -223,10 +238,11 @@ async function start(): Promise<void> {
     console.log(`[shutdown] ${signal} received — draining connections...`);
     server.close(async () => {
       try {
+        await closeRateLimiterRedis();
         await db.destroy();
-        console.log("[shutdown] DB connections closed. Exiting.");
+        console.log("[shutdown] DB & Redis connections closed. Exiting.");
       } catch (err) {
-        console.error("[shutdown] Error closing DB:", err);
+        console.error("[shutdown] Error closing connections:", err);
       }
       process.exit(0);
     });

@@ -5,6 +5,10 @@ import {
   EventMetadata,
   AuditLog,
   HierarchyCategoryConfig,
+  DocumentReader,
+  Activity,
+  ActivityType,
+  NotificationSubscription,
 } from "@snomed/types";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +139,53 @@ export async function runMigrations(): Promise<void> {
       t.integer("sort_order").notNullable().defaultTo(0);
     });
     console.log("[db] Created hierarchy_category_configs table");
+  }
+
+  const hasDocumentReads = await db.schema.hasTable("document_reads");
+  if (!hasDocumentReads) {
+    await db.schema.createTable("document_reads", (t) => {
+      t.string("file_id").notNullable();
+      t.string("space_id").notNullable();
+      t.string("user_id").notNullable();
+      t.string("user_name").notNullable();
+      t.timestamp("read_at").notNullable().defaultTo(db.fn.now());
+      t.primary(["file_id", "user_id"]);
+      t.index(["space_id", "user_id"]); // fast "my reads in this space" lookups
+    });
+    console.log("[db] Created document_reads table");
+  }
+
+  // Notifiable events within a space. Kept as a durable log and used to build
+  // email bodies when fanning out to subscribers.
+  const hasActivities = await db.schema.hasTable("activities");
+  if (!hasActivities) {
+    await db.schema.createTable("activities", (t) => {
+      t.increments("id").primary();
+      t.string("space_id").notNullable();
+      t.string("type").notNullable();
+      t.string("title").notNullable();
+      t.string("link").nullable();
+      t.string("entity_id").nullable();
+      t.string("actor_name").nullable();
+      t.timestamp("created_at").notNullable().defaultTo(db.fn.now());
+      t.index(["space_id", "created_at"]);
+    });
+    console.log("[db] Created activities table");
+  }
+
+  // Opt-in "Notify me" subscriptions. The email is captured from the user's
+  // session at subscribe time, since there is no external user directory.
+  const hasSubs = await db.schema.hasTable("notification_subscriptions");
+  if (!hasSubs) {
+    await db.schema.createTable("notification_subscriptions", (t) => {
+      t.string("user_id").notNullable();
+      t.string("space_id").notNullable();
+      t.string("email").notNullable();
+      t.timestamp("created_at").notNullable().defaultTo(db.fn.now());
+      t.primary(["user_id", "space_id"]);
+      t.index(["space_id"]); // fast subscriber lookup on fan-out
+    });
+    console.log("[db] Created notification_subscriptions table");
   }
 }
 
@@ -508,8 +559,47 @@ export async function createAuditLog(
   });
 }
 
-export async function getAuditLogs(limit = 100): Promise<AuditLog[]> {
-  const rows = await db("audit_logs").orderBy("timestamp", "desc").limit(limit);
+export interface AuditLogQuery {
+  /** Exact action match, e.g. "DELETE_DOCUMENT". */
+  action?: string;
+  /** Exact entity type match, e.g. "SPACE". */
+  entityType?: string;
+  /** Case-insensitive substring match against the user's name. */
+  user?: string;
+  /** Inclusive lower bound as YYYY-MM-DD (interpreted as start of that day). */
+  from?: string;
+  /** Inclusive upper bound as YYYY-MM-DD (interpreted as end of that day). */
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+const MAX_AUDIT_LIMIT = 5000;
+
+/**
+ * Builds a filtered audit_logs query. Timestamp bounds are formatted with a
+ * space separator (not ISO "T") so string comparison works against SQLite's
+ * "YYYY-MM-DD HH:MM:SS" text timestamps as well as Postgres timestamps.
+ */
+function auditLogQuery(f: AuditLogQuery) {
+  let q = db("audit_logs");
+  if (f.action) q = q.where("action", f.action);
+  if (f.entityType) q = q.where("entity_type", f.entityType);
+  if (f.user) {
+    q = q.whereRaw("lower(user_name) like ?", [`%${f.user.toLowerCase()}%`]);
+  }
+  if (f.from) q = q.where("timestamp", ">=", `${f.from} 00:00:00`);
+  if (f.to) q = q.where("timestamp", "<=", `${f.to} 23:59:59`);
+  return q;
+}
+
+export async function getAuditLogs(
+  query: AuditLogQuery = {},
+): Promise<AuditLog[]> {
+  const q = auditLogQuery(query).orderBy("timestamp", "desc");
+  if (query.offset) q.offset(query.offset);
+  q.limit(Math.min(query.limit ?? 100, MAX_AUDIT_LIMIT));
+  const rows = await q;
 
   return rows.map((r) => ({
     id: r.id,
@@ -555,6 +645,188 @@ export async function setCategoryConfigs(
       );
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Document Read Receipts
+// ---------------------------------------------------------------------------
+
+interface DocumentReadRow {
+  file_id: string;
+  space_id: string;
+  user_id: string;
+  user_name: string;
+  read_at: string;
+}
+
+/** Marks a document as read by a user (idempotent — refreshes read_at). */
+export async function markDocumentRead(
+  fileId: string,
+  spaceId: string,
+  userId: string,
+  userName: string,
+): Promise<void> {
+  const existing = await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId, user_id: userId })
+    .first();
+
+  if (existing) {
+    await db<DocumentReadRow>("document_reads")
+      .where({ file_id: fileId, user_id: userId })
+      .update({ read_at: db.fn.now(), space_id: spaceId, user_name: userName });
+  } else {
+    await db<DocumentReadRow>("document_reads").insert({
+      file_id: fileId,
+      space_id: spaceId,
+      user_id: userId,
+      user_name: userName,
+    });
+  }
+}
+
+/** Removes a user's read receipt for a document. */
+export async function unmarkDocumentRead(
+  fileId: string,
+  userId: string,
+): Promise<void> {
+  await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId, user_id: userId })
+    .delete();
+}
+
+/** Returns the set of file IDs a user has marked read within a space. */
+export async function getUserReadFileIds(
+  spaceId: string,
+  userId: string,
+): Promise<string[]> {
+  const rows = await db<DocumentReadRow>("document_reads")
+    .where({ space_id: spaceId, user_id: userId })
+    .select("file_id");
+  return rows.map((r) => r.file_id);
+}
+
+/** Returns everyone who has marked a given document read, most recent first. */
+export async function getDocumentReaders(
+  fileId: string,
+): Promise<DocumentReader[]> {
+  const rows = await db<DocumentReadRow>("document_reads")
+    .where({ file_id: fileId })
+    .orderBy("read_at", "desc");
+  return rows.map((r) => ({
+    userId: r.user_id,
+    userName: r.user_name,
+    readAt: r.read_at,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Notifications — activities & subscriptions
+// ---------------------------------------------------------------------------
+
+interface ActivityRow {
+  id: number;
+  space_id: string;
+  type: string;
+  title: string;
+  link: string | null;
+  entity_id: string | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface NewActivity {
+  spaceId: string;
+  type: ActivityType;
+  title: string;
+  link?: string;
+  entityId?: string;
+  actorName?: string;
+}
+
+/** Records a notifiable event and returns it (with generated id/timestamp). */
+export async function createActivity(input: NewActivity): Promise<Activity> {
+  const [row] = await db<ActivityRow>("activities")
+    .insert({
+      space_id: input.spaceId,
+      type: input.type,
+      title: input.title,
+      link: input.link ?? null,
+      entity_id: input.entityId ?? null,
+      actor_name: input.actorName ?? null,
+    })
+    .returning(["id", "created_at"]);
+
+  return {
+    id: typeof row === "object" ? row.id : (row as number),
+    spaceId: input.spaceId,
+    type: input.type,
+    title: input.title,
+    link: input.link,
+    entityId: input.entityId,
+    actorName: input.actorName,
+    createdAt:
+      typeof row === "object" && row.created_at
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+export interface Subscriber {
+  userId: string;
+  email: string;
+}
+
+/** Everyone subscribed to a space's notifications. */
+export async function getSpaceSubscribers(spaceId: string): Promise<Subscriber[]> {
+  const rows = await db("notification_subscriptions")
+    .where({ space_id: spaceId })
+    .select("user_id", "email");
+  return rows.map((r) => ({ userId: r.user_id, email: r.email }));
+}
+
+/** Subscribe a user to a space (idempotent — refreshes the stored email). */
+export async function subscribeToSpace(
+  userId: string,
+  spaceId: string,
+  email: string,
+): Promise<void> {
+  const existing = await db("notification_subscriptions")
+    .where({ user_id: userId, space_id: spaceId })
+    .first();
+  if (existing) {
+    await db("notification_subscriptions")
+      .where({ user_id: userId, space_id: spaceId })
+      .update({ email });
+  } else {
+    await db("notification_subscriptions").insert({
+      user_id: userId,
+      space_id: spaceId,
+      email,
+    });
+  }
+}
+
+export async function unsubscribeFromSpace(
+  userId: string,
+  spaceId: string,
+): Promise<void> {
+  await db("notification_subscriptions")
+    .where({ user_id: userId, space_id: spaceId })
+    .delete();
+}
+
+/** The space IDs a user is subscribed to. */
+export async function getUserSubscriptions(
+  userId: string,
+): Promise<NotificationSubscription[]> {
+  const rows = await db("notification_subscriptions")
+    .where({ user_id: userId })
+    .orderBy("created_at", "desc");
+  return rows.map((r) => ({
+    spaceId: r.space_id,
+    email: r.email,
+    createdAt: r.created_at,
+  }));
 }
 
 export default db;

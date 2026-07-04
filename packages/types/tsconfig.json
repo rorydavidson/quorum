@@ -3,6 +3,10 @@
     "target": "ES2020",
     "module": "CommonJS",
     "moduleResolution": "node",
+    // TS 6.x flags the classic "node" resolution as deprecated (removed in 7.0).
+    // Silence it for now — migrating to node16/nodenext resolution shifts CJS/ESM
+    // default-import interop across the BFF and is a separate, larger change.
+    "ignoreDeprecations": "5.0",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

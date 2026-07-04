@@ -18,7 +18,8 @@ import {
   getCategoryConfigs,
   setCategoryConfigs,
 } from "../services/db.js";
-import { copyFileInDrive } from "../services/drive.js";
+import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
+import { notifyActivity } from "../services/notifications.js";
 
 const router: IRouter = Router();
 
@@ -33,7 +34,16 @@ const SpaceWriteSchema = z.object({
   keycloakGroup: z.string().min(1).max(200),
   driveFolderId: z.string().min(1).max(200),
   calendarId: z.string().max(500).optional(),
-  icalUrl: z.string().max(2048).optional(),
+  // Fetched server-side by the calendar service, so constrain the scheme to
+  // https to reduce SSRF surface (blocks http://169.254.* metadata, file://, etc.).
+  icalUrl: z
+    .string()
+    .max(2048)
+    .refine(
+      (v) => v === "" || /^https:\/\//i.test(v),
+      "icalUrl must be an https URL",
+    )
+    .optional(),
   discourseCategorySlug: z.string().max(100).optional(),
   hierarchyCategory: z.string().min(1).max(200),
   uploadGroups: z.array(z.string().max(200)).optional(),
@@ -380,6 +390,15 @@ router.post(
       return;
     }
 
+    // Verify the file actually lives within this space's Drive tree before
+    // copying it — consistent with the download/delete ancestry checks and
+    // prevents copying an arbitrary file the service account can see.
+    const fileBelongs = await verifyFileAncestry(fileId, space.driveFolderId);
+    if (!fileBelongs) {
+      res.status(403).json({ error: "File is not within this space", code: "FILE_OUTSIDE_SPACE" });
+      return;
+    }
+
     const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
     const newName = `_OFFICIAL_RECORD_${date}_${fileName}`;
 
@@ -399,6 +418,17 @@ router.post(
       entityType: "FILE",
       entityId: fileId,
       details: JSON.stringify({ spaceId, fileName, officialRecordName: newName }),
+    });
+
+    void notifyActivity({
+      spaceId: space.id,
+      spaceName: space.name,
+      type: "NEW_OFFICIAL_RECORD",
+      title: `New Official Record: ${fileName}`,
+      link: `/spaces/${space.id}/documents`,
+      entityId: copy.id,
+      actorName: user.name,
+      actorUserId: user.sub,
     });
 
     res.status(201).json(copy);
@@ -463,10 +493,61 @@ router.post("/reset", async (req: Request, res: Response): Promise<void> => {
 // Audit Logs
 // ---------------------------------------------------------------------------
 
+const AuditLogQuerySchema = z.object({
+  action: z.string().max(100).optional(),
+  entityType: z.string().max(50).optional(),
+  user: z.string().max(200).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from must be YYYY-MM-DD").optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to must be YYYY-MM-DD").optional(),
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+// Empty query-string values (?action=) should be treated as "no filter".
+function cleanQuery(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v !== undefined && v !== "") out[k] = v;
+  }
+  return out;
+}
+
+/** Escapes a single CSV field per RFC 4180. */
+function csvField(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function auditLogsToCsv(logs: Awaited<ReturnType<typeof getAuditLogs>>): string {
+  const header = ["timestamp", "userName", "userId", "action", "entityType", "entityId", "details"];
+  const rows = logs.map((l) =>
+    [l.timestamp, l.userName, l.userId, l.action, l.entityType, l.entityId, l.details ?? ""]
+      .map(csvField)
+      .join(","),
+  );
+  return [header.join(","), ...rows].join("\r\n");
+}
+
 router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => {
-  const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 100;
-  const logs = await getAuditLogs(limit);
+  const parsed = AuditLogQuerySchema.safeParse(cleanQuery(req.query));
+  if (!parsed.success) { zodError(res, parsed.error); return; }
+  const logs = await getAuditLogs(parsed.data);
   res.json(logs);
+});
+
+router.get("/audit-logs/export", async (req: Request, res: Response): Promise<void> => {
+  const parsed = AuditLogQuerySchema.safeParse(cleanQuery(req.query));
+  if (!parsed.success) { zodError(res, parsed.error); return; }
+
+  // Export ignores pagination — dump the full filtered set (capped in the DB layer).
+  const logs = await getAuditLogs({ ...parsed.data, limit: 5000, offset: 0 });
+  const date = new Date().toISOString().split("T")[0];
+  res.header("Content-Type", "text/csv; charset=utf-8");
+  res.header(
+    "Content-Disposition",
+    `attachment; filename="quorum-audit-log-${date}.csv"`,
+  );
+  res.send(auditLogsToCsv(logs));
 });
 
 // ---------------------------------------------------------------------------

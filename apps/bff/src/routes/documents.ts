@@ -11,8 +11,10 @@ import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { uploadLimiter } from "../middleware/rateLimiter.js";
-import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs } from "../services/db.js";
+import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs, markDocumentRead, unmarkDocumentRead, getUserReadFileIds, getDocumentReaders } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
+import { isAdminUser, userCanAccessSpace, userCanUpload } from "../utils/rbac.js";
+import { notifyActivity } from "../services/notifications.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -64,29 +66,6 @@ const router: IRouter = Router();
 
 // All document routes require an active session
 router.use(requireAuth);
-
-// ---------------------------------------------------------------------------
-// Helper: check whether the session user belongs to a space's keycloak group
-// ---------------------------------------------------------------------------
-
-export function userCanAccessSpace(
-  userGroups: string[],
-  spaceGroup: string,
-  isAdmin: boolean,
-): boolean {
-  if (isAdmin) return true;
-  // Keycloak groups can be bare ("board-members") or path-prefixed ("/board-members")
-  return userGroups.some(
-    (g) =>
-      g === spaceGroup ||
-      g === spaceGroup.replace(/^\//, "") ||
-      `/${g}` === spaceGroup,
-  );
-}
-
-export function isAdminUser(groups: string[]): boolean {
-  return groups.some((g) => g === "portal_admin" || g === "/portal_admin");
-}
 
 // ---------------------------------------------------------------------------
 // Helper: validate a user-supplied Drive folder ID
@@ -362,19 +341,6 @@ function uploadSingle(req: Request, res: Response, next: NextFunction): void {
   });
 }
 
-export function userCanUpload(
-  userGroups: string[],
-  uploadGroups: string[],
-  isAdmin: boolean,
-): boolean {
-  if (isAdmin) return true;
-  return uploadGroups.some((g) =>
-    userGroups.some(
-      (ug) => ug === g || ug === g.replace(/^\//, "") || `/${ug}` === g,
-    ),
-  );
-}
-
 router.post(
   "/:spaceId/upload",
   uploadLimiter,
@@ -488,6 +454,18 @@ router.post(
           name: file.originalname,
           folderId: targetFolderId,
         }),
+      });
+
+      // Notify subscribers (fire-and-forget; never blocks the response)
+      void notifyActivity({
+        spaceId: space.id,
+        spaceName: space.name,
+        type: "NEW_DOCUMENT",
+        title: `New document: ${file.originalname}`,
+        link: `/spaces/${space.id}/documents`,
+        entityId: driveFile.id,
+        actorName: user.name,
+        actorUserId: user.sub,
       });
     } catch (err) {
       console.error("[documents] Upload error:", err);
@@ -636,6 +614,108 @@ router.delete(
       console.error("[documents] Delete error:", err);
       res.status(502).json({ error: "Failed to delete file from Drive", code: "DRIVE_ERROR" });
     }
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Read receipts
+// ---------------------------------------------------------------------------
+
+// GET /documents/:spaceId/reads — the current user's read file IDs in this space
+router.get(
+  "/:spaceId/reads",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const space = await getSpaceById(String(req.params.spaceId));
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+    if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+      res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+      return;
+    }
+
+    const fileIds = await getUserReadFileIds(space.id, user.sub);
+    res.json({ readFileIds: fileIds });
+  }),
+);
+
+// POST /documents/:spaceId/:fileId/read — mark a document as read (self)
+router.post(
+  "/:spaceId/:fileId/read",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const fileId = String(req.params.fileId);
+    const space = await getSpaceById(String(req.params.spaceId));
+
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+    if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+      res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+      return;
+    }
+    if (!isValidDriveId(fileId)) {
+      res.status(400).json({ error: "Invalid file ID", code: "INVALID_FILE_ID" });
+      return;
+    }
+
+    // Only allow marking files that actually belong to this space.
+    const belongs = await verifyFileAncestry(fileId, space.driveFolderId);
+    if (!belongs) {
+      res.status(403).json({ error: "File is not within this space", code: "FILE_OUTSIDE_SPACE" });
+      return;
+    }
+
+    await markDocumentRead(fileId, space.id, user.sub, user.name);
+    res.status(204).end();
+  }),
+);
+
+// DELETE /documents/:spaceId/:fileId/read — clear the current user's read receipt
+router.delete(
+  "/:spaceId/:fileId/read",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const fileId = String(req.params.fileId);
+    const space = await getSpaceById(String(req.params.spaceId));
+
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+    if (!userCanAccessSpace(user.groups, space.keycloakGroup, isAdminUser(user.groups))) {
+      res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
+      return;
+    }
+
+    await unmarkDocumentRead(fileId, user.sub);
+    res.status(204).end();
+  }),
+);
+
+// GET /documents/:spaceId/:fileId/readers — who has read this document (admin only)
+router.get(
+  "/:spaceId/:fileId/readers",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const fileId = String(req.params.fileId);
+    const space = await getSpaceById(String(req.params.spaceId));
+
+    if (!space) {
+      res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
+      return;
+    }
+    // Secretariat/admin view — seeing who is prepared is a governance function.
+    if (!isAdminUser(user.groups)) {
+      res.status(403).json({ error: "Forbidden", code: "FORBIDDEN" });
+      return;
+    }
+
+    const readers = await getDocumentReaders(fileId);
+    res.json({ readers });
   }),
 );
 

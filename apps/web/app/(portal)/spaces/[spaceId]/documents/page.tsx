@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
-import { getSpaceFiles, getUserFromHeaders } from '@/lib/api-client';
+import { getSpaceFiles, getUserFromHeaders, getSpaceReadFileIds } from '@/lib/api-client';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SpaceWithFiles } from '@/lib/api-client';
 
@@ -21,8 +21,10 @@ export default async function SpaceDocumentsPage({ params, searchParams }: Props
   let data: SpaceWithFiles | null = null;
   let error: string | null = null;
 
+  let readFileIds: string[] = [];
   try {
     data = await getSpaceFiles(spaceId, cookie, folderId);
+    readFileIds = await getSpaceReadFileIds(spaceId, cookie);
   } catch (err) {
     error = (err as Error).message;
   }
@@ -79,7 +81,7 @@ export default async function SpaceDocumentsPage({ params, searchParams }: Props
               {data.files.length} {data.files.length === 1 ? 'document' : 'documents'}
             </p>
           </div>
-          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} />
+          <DocumentList spaceId={spaceId} files={data.files} canUpload={canUpload} canCreateOfficialRecord={isAdmin} readFileIds={readFileIds} canViewReaders={isAdmin} />
         </>
       )}
     </div>
