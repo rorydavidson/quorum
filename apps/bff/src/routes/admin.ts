@@ -19,6 +19,7 @@ import {
   setCategoryConfigs,
 } from "../services/db.js";
 import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
+import { notifyActivity } from "../services/notifications.js";
 
 const router: IRouter = Router();
 
@@ -417,6 +418,17 @@ router.post(
       entityType: "FILE",
       entityId: fileId,
       details: JSON.stringify({ spaceId, fileName, officialRecordName: newName }),
+    });
+
+    void notifyActivity({
+      spaceId: space.id,
+      spaceName: space.name,
+      type: "NEW_OFFICIAL_RECORD",
+      title: `New Official Record: ${fileName}`,
+      link: `/spaces/${space.id}/documents`,
+      entityId: copy.id,
+      actorName: user.name,
+      actorUserId: user.sub,
     });
 
     res.status(201).json(copy);

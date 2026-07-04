@@ -14,6 +14,7 @@ import { uploadLimiter } from "../middleware/rateLimiter.js";
 import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs, markDocumentRead, unmarkDocumentRead, getUserReadFileIds, getDocumentReaders } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
 import { isAdminUser, userCanAccessSpace, userCanUpload } from "../utils/rbac.js";
+import { notifyActivity } from "../services/notifications.js";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -453,6 +454,18 @@ router.post(
           name: file.originalname,
           folderId: targetFolderId,
         }),
+      });
+
+      // Notify subscribers (fire-and-forget; never blocks the response)
+      void notifyActivity({
+        spaceId: space.id,
+        spaceName: space.name,
+        type: "NEW_DOCUMENT",
+        title: `New document: ${file.originalname}`,
+        link: `/spaces/${space.id}/documents`,
+        entityId: driveFile.id,
+        actorName: user.name,
+        actorUserId: user.sub,
       });
     } catch (err) {
       console.error("[documents] Upload error:", err);

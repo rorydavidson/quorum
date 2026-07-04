@@ -29,6 +29,10 @@ vi.mock('../services/drive.js', () => ({
   verifyFileAncestry: vi.fn(),
 }));
 
+vi.mock('../services/notifications.js', () => ({
+  notifyActivity: vi.fn().mockResolvedValue(0),
+}));
+
 import * as db from '../services/db.js';
 import * as drive from '../services/drive.js';
 

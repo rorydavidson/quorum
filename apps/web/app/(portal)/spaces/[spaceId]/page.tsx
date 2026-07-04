@@ -16,6 +16,7 @@ import { getSpaceFiles, getSpaceEvents, getSpaceForumTopics } from '@/lib/api-cl
 import type { SpaceWithFiles } from '@/lib/api-client';
 import type { CalendarEvent, DiscoursePost, DriveFile, SpaceSection } from '@snomed/types';
 import { ForumWidget } from '@/components/forum/ForumWidget';
+import { NotifyMeButton } from '@/components/notifications/NotifyMeButton';
 
 interface Props {
   params: Promise<{ spaceId: string }>;
@@ -184,12 +185,17 @@ export default async function SpaceLandingPage({ params }: Props) {
         <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-snomed-blue-light flex items-center justify-center">
           <FolderOpen size={24} className="text-snomed-blue" />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold text-snomed-grey">{space?.name ?? 'Space'}</h1>
           {space?.description && (
             <p className="mt-1 text-sm text-snomed-grey/60 max-w-xl">{space.description}</p>
           )}
         </div>
+        {space && (
+          <div className="flex-shrink-0">
+            <NotifyMeButton spaceId={spaceId} />
+          </div>
+        )}
       </div>
 
       {error && (

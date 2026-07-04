@@ -5,6 +5,15 @@
 > board/governance use case and the iPad-first goal. Nothing here is required
 > to ship; it's a menu to prioritise from.
 
+## Implemented so far
+
+- ✅ **Route error/empty-state polish** — error/loading boundaries + not-found.
+- ✅ **Audit-log filtering + CSV export** — filter by action/entity/user/date, paginated, exportable.
+- ✅ **Read receipts** — per-document mark-as-read + admin "who has read this".
+- ✅ **Notify me (email)** — opt-in per-space email notifications on new
+  documents, Official Records, and linked meeting documents (SMTP-backed;
+  logs in mock mode when SMTP is unconfigured).
+
 ---
 
 ## Search & navigation

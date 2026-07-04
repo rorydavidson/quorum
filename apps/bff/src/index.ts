@@ -17,6 +17,7 @@ import calendarRouter from "./routes/calendar.js";
 import searchRouter from "./routes/search.js";
 import eventsRouter from "./routes/events.js";
 import forumRouter from "./routes/forum.js";
+import notificationsRouter from "./routes/notifications.js";
 import { globalLimiter, authLimiter, searchLimiter } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 
@@ -119,6 +120,7 @@ app.get("/csrf-token", (req, res) => {
 app.use("/documents", csrfProtection);
 app.use("/admin", csrfProtection);
 app.use("/events", csrfProtection);
+app.use("/notifications", csrfProtection);
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -167,6 +169,7 @@ app.use("/calendar", calendarRouter);
 app.use("/search", searchLimiter, searchRouter);
 app.use("/events", eventsRouter);
 app.use("/forum", forumRouter);
+app.use("/notifications", notificationsRouter);
 
 // ---------------------------------------------------------------------------
 // Global Error Handler

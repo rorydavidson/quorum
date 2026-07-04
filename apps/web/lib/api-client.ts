@@ -163,6 +163,33 @@ export async function getDocumentReaders(spaceId: string, fileId: string): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Notification subscriptions ("Notify me")
+// ---------------------------------------------------------------------------
+
+/** The space IDs the current user is subscribed to (client-side). */
+export async function getSubscribedSpaceIds(): Promise<string[]> {
+  const res = await fetch('/api/notifications/subscriptions');
+  if (!res.ok) throw new Error('Failed to load subscriptions');
+  const data = await res.json() as { subscriptions: { spaceId: string }[] };
+  return data.subscriptions.map((s) => s.spaceId);
+}
+
+/** Subscribe to a space's email notifications (client-side). */
+export async function subscribeToSpaceNotifications(spaceId: string): Promise<void> {
+  const res = await csrfFetch(`/api/notifications/subscriptions/${spaceId}`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to subscribe' })) as { error?: string };
+    throw new Error(err.error ?? 'Failed to subscribe');
+  }
+}
+
+/** Unsubscribe from a space's email notifications (client-side). */
+export async function unsubscribeFromSpaceNotifications(spaceId: string): Promise<void> {
+  const res = await csrfFetch(`/api/notifications/subscriptions/${spaceId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unsubscribe');
+}
+
+// ---------------------------------------------------------------------------
 // Calendar
 // ---------------------------------------------------------------------------
 

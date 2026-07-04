@@ -25,6 +25,10 @@ vi.mock("../services/db.js", () => ({
   createAuditLog: vi.fn(),
 }));
 
+vi.mock("../services/notifications.js", () => ({
+  notifyActivity: vi.fn().mockResolvedValue(0),
+}));
+
 import * as db from "../services/db.js";
 
 // ---------------------------------------------------------------------------

@@ -135,3 +135,27 @@ export interface DocumentReader {
   userName: string;
   readAt: string; // ISO 8601
 }
+
+export type ActivityType =
+  | 'NEW_DOCUMENT'
+  | 'NEW_OFFICIAL_RECORD'
+  | 'EVENT_UPDATED';
+
+/** A notifiable event within a space. */
+export interface Activity {
+  id: number;
+  spaceId: string;
+  type: ActivityType;
+  title: string;
+  link?: string;
+  entityId?: string;
+  actorName?: string;
+  createdAt: string;
+}
+
+/** A user's opt-in email subscription to a space's activity. */
+export interface NotificationSubscription {
+  spaceId: string;
+  email: string;
+  createdAt: string;
+}
