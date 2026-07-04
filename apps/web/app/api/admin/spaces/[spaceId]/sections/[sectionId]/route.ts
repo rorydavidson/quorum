@@ -1,7 +1,7 @@
 // PUT /api/admin/spaces/:spaceId/sections/:sectionId
 // DELETE /api/admin/spaces/:spaceId/sections/:sectionId
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { bffHeaders } from '@/lib/bff';
 
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
@@ -9,11 +9,10 @@ interface Params { params: Promise<{ spaceId: string; sectionId: string }> }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   const { spaceId, sectionId } = await params;
-  const cookieStore = await cookies();
   const body = await req.json();
   const res = await fetch(`${BFF_URL}/admin/spaces/${spaceId}/sections/${sectionId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', cookie: cookieStore.toString() },
+    headers: await bffHeaders(),
     body: JSON.stringify(body),
   });
 
@@ -28,10 +27,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { spaceId, sectionId } = await params;
-  const cookieStore = await cookies();
   const res = await fetch(`${BFF_URL}/admin/spaces/${spaceId}/sections/${sectionId}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', cookie: cookieStore.toString() },
+    headers: await bffHeaders(),
   });
 
   if (res.status === 204) {

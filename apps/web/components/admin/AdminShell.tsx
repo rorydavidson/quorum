@@ -20,6 +20,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig } from '@snomed/types';
+import { csrfFetch } from '@/lib/csrf';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -201,7 +202,7 @@ export function AdminShell({ initialSpaces }: Props) {
       const entries = categoryConfigs
         .filter((c) => c.sortOrder !== null)
         .map((c) => ({ name: c.name, sortOrder: c.sortOrder as number }));
-      const res = await fetch('/api/admin/categories', {
+      const res = await csrfFetch('/api/admin/categories', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entries }),
@@ -254,7 +255,7 @@ export function AdminShell({ initialSpaces }: Props) {
       const url = editingSpace ? `/api/admin/spaces/${editingSpace.id}` : '/api/admin/spaces';
       const method = editingSpace ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await csrfFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -279,7 +280,7 @@ export function AdminShell({ initialSpaces }: Props) {
     if (!confirm(`Delete "${space.name}"? This will also delete all its sections. This cannot be undone.`)) return;
     setDeleting(space.id);
     try {
-      const res = await fetch(`/api/admin/spaces/${space.id}`, { method: 'DELETE' });
+      const res = await csrfFetch(`/api/admin/spaces/${space.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       await refreshSpaces();
       showToast(`"${space.name}" deleted.`, 'success');
@@ -324,7 +325,7 @@ export function AdminShell({ initialSpaces }: Props) {
         : `/api/admin/spaces/${editingSectionSpaceId}/sections`;
       const method = editingSection ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await csrfFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -350,7 +351,7 @@ export function AdminShell({ initialSpaces }: Props) {
     if (!confirm(`Delete section "${section.name}"? This cannot be undone.`)) return;
     setDeleting(`${spaceId}:${section.id}`);
     try {
-      const res = await fetch(`/api/admin/spaces/${spaceId}/sections/${section.id}`, { method: 'DELETE' });
+      const res = await csrfFetch(`/api/admin/spaces/${spaceId}/sections/${section.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       await refreshSpaces();
       showToast(`Section "${section.name}" deleted.`, 'success');
@@ -401,7 +402,7 @@ export function AdminShell({ initialSpaces }: Props) {
       const text = await file.text();
       const backup = JSON.parse(text);
 
-      const res = await fetch('/api/admin/import', {
+      const res = await csrfFetch('/api/admin/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(backup),
@@ -438,7 +439,7 @@ export function AdminShell({ initialSpaces }: Props) {
       await exportSettings();
 
       // 2. Clear
-      const res = await fetch('/api/admin/reset', { method: 'POST' });
+      const res = await csrfFetch('/api/admin/reset', { method: 'POST' });
       if (!res.ok) throw new Error('Reset failed');
 
       await refreshSpaces();

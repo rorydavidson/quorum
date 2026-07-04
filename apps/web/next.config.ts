@@ -19,6 +19,17 @@ const nextConfig: NextConfig = {
   env: {
     BFF_URL: process.env.BFF_URL ?? "http://localhost:3001",
   },
+
+  webpack: (config) => {
+    // isomorphic-dompurify (used for HTML sanitisation) pulls in jsdom, whose
+    // optional `canvas` native binding can't be bundled by webpack. jsdom works
+    // fine without it, so alias it to false to keep the build resolvable.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      canvas: false,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

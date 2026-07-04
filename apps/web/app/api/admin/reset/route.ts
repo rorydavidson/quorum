@@ -1,15 +1,12 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { bffHeaders } from '@/lib/bff';
 
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
 export async function POST() {
-    const cookieStore = await cookies();
-    const cookie = cookieStore.toString();
-
     const res = await fetch(`${BFF_URL}/admin/reset`, {
         method: 'POST',
-        headers: { cookie },
+        headers: await bffHeaders(),
     });
 
     if (!res.ok) {

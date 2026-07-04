@@ -1,4 +1,5 @@
 import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig } from '@snomed/types';
+import { csrfFetch, getCsrfToken } from './csrf';
 
 // ---------------------------------------------------------------------------
 // Typed fetch wrapper — all calls go to Next.js API routes which proxy to BFF.
@@ -265,13 +266,16 @@ export interface UploadProgress {
  * Returns the newly-created DriveFile on success.
  * `onProgress` is called periodically with the upload percentage.
  */
-export function uploadFileToSpace(
+export async function uploadFileToSpace(
   spaceId: string,
   file: File,
   sectionId?: string,
   folderId?: string,
   onProgress?: (p: UploadProgress) => void
 ): Promise<DriveFile> {
+  // Obtain the CSRF token before opening the request so it can be sent as a header.
+  const csrfToken = await getCsrfToken();
+
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append('file', file);
@@ -282,6 +286,7 @@ export function uploadFileToSpace(
     else if (sectionId) url.searchParams.set('sectionId', sectionId);
 
     xhr.open('POST', url.toString());
+    xhr.setRequestHeader('x-csrf-token', csrfToken);
 
     if (onProgress) {
       xhr.upload.addEventListener('progress', (e) => {
@@ -325,7 +330,7 @@ export async function createOfficialRecord(
   fileId: string,
   fileName: string,
 ): Promise<DriveFile> {
-  const res = await fetch(
+  const res = await csrfFetch(
     `/api/admin/spaces/${spaceId}/files/${fileId}/snapshot`,
     {
       method: 'POST',
@@ -346,7 +351,7 @@ export async function createOfficialRecord(
  * Delete a file from a space.
  */
 export async function deleteFileFromSpace(spaceId: string, fileId: string): Promise<void> {
-  const res = await fetch(`/api/documents/${spaceId}/${fileId}`, {
+  const res = await csrfFetch(`/api/documents/${spaceId}/${fileId}`, {
     method: 'DELETE',
   });
 
@@ -370,7 +375,7 @@ export async function createFolderInSpace(
   if (folderId) url.searchParams.set('folderId', folderId);
   else if (sectionId) url.searchParams.set('sectionId', sectionId);
 
-  const res = await fetch(url.toString(), {
+  const res = await csrfFetch(url.toString(), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -406,7 +411,7 @@ export async function updateEventMetadata(
   eventId: string,
   payload: Partial<Omit<EventMetadata, 'id' | 'spaceId'>>
 ): Promise<EventMetadata> {
-  const res = await fetch(`/api/events/${spaceId}/${eventId}`, {
+  const res = await csrfFetch(`/api/events/${spaceId}/${eventId}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
