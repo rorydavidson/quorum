@@ -7,13 +7,18 @@
     "build": "pnpm --filter types build && pnpm --filter bff build && pnpm --filter web build",
     "typecheck": "pnpm --recursive typecheck",
     "lint": "pnpm --recursive lint",
-    "test": "pnpm --filter bff test",
-    "test:coverage": "pnpm --filter bff test:coverage"
+    "test": "pnpm --filter bff test && pnpm --filter web test",
+    "test:coverage": "pnpm --filter bff test:coverage",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "concurrently": "^9.1.2"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   }
 }
