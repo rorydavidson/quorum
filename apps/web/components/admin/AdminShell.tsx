@@ -28,6 +28,42 @@ import { csrfFetch } from '@/lib/csrf';
 
 type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order';
 
+// Known audit actions/entity types for the filter dropdowns (stable enums in the BFF).
+const AUDIT_ACTIONS = [
+  'CREATE_SPACE', 'UPDATE_SPACE', 'DELETE_SPACE',
+  'CREATE_SECTION', 'UPDATE_SECTION', 'DELETE_SECTION',
+  'UPLOAD_DOCUMENT', 'DELETE_DOCUMENT', 'CREATE_FOLDER', 'CREATE_OFFICIAL_RECORD',
+  'CREATE_EVENT_AGENDA', 'UPDATE_EVENT_AGENDA', 'DELETE_EVENT_AGENDA', 'UPDATE_EVENT_DOC',
+  'UPDATE_CATEGORY_ORDER', 'RESTORE_BACKUP', 'RESET_SITE',
+];
+const AUDIT_ENTITY_TYPES = ['SPACE', 'SECTION', 'DOCUMENT', 'FILE', 'EVENT', 'CATEGORY', 'SITE'];
+const AUDIT_PAGE_SIZE = 100;
+
+interface AuditFilters {
+  action: string;
+  entityType: string;
+  user: string;
+  from: string;
+  to: string;
+}
+
+const EMPTY_AUDIT_FILTERS: AuditFilters = { action: '', entityType: '', user: '', from: '', to: '' };
+
+function auditQueryString(
+  filters: AuditFilters,
+  extra: Record<string, string | number> = {},
+): string {
+  const p = new URLSearchParams();
+  if (filters.action) p.set('action', filters.action);
+  if (filters.entityType) p.set('entityType', filters.entityType);
+  if (filters.user) p.set('user', filters.user);
+  if (filters.from) p.set('from', filters.from);
+  if (filters.to) p.set('to', filters.to);
+  for (const [k, v] of Object.entries(extra)) p.set(k, String(v));
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+
 interface SpaceFormData {
   id: string;
   name: string;
@@ -146,6 +182,9 @@ export function AdminShell({ initialSpaces }: Props) {
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
 
   const [categoryConfigs, setCategoryConfigs] = useState<{ name: string; sortOrder: number | null }[]>([]);
   const [savingCategories, setSavingCategories] = useState(false);
@@ -166,20 +205,26 @@ export function AdminShell({ initialSpaces }: Props) {
     }
   }, []);
 
-  const fetchAuditLogs = useCallback(async () => {
+  const fetchAuditLogs = useCallback(async (opts: { append?: boolean } = {}) => {
     setLoadingLogs(true);
+    const offset = opts.append ? auditOffset : 0;
     try {
-      const res = await fetch('/api/admin/audit-logs');
+      const qs = auditQueryString(auditFilters, { limit: AUDIT_PAGE_SIZE, offset });
+      const res = await fetch(`/api/admin/audit-logs${qs}`);
       if (res.ok) {
         const data = await res.json() as AuditLog[];
-        setAuditLogs(data);
+        setAuditLogs((prev) => (opts.append ? [...prev, ...data] : data));
+        setAuditOffset(offset + data.length);
+        setHasMoreLogs(data.length === AUDIT_PAGE_SIZE);
+      } else {
+        showToast('Failed to fetch audit logs.', 'error');
       }
     } catch {
       showToast('Failed to fetch audit logs.', 'error');
     } finally {
       setLoadingLogs(false);
     }
-  }, [showToast]);
+  }, [auditFilters, auditOffset, showToast]);
 
   const loadCategoryConfigs = useCallback(async () => {
     setLoadingCategories(true);
@@ -785,13 +830,22 @@ export function AdminShell({ initialSpaces }: Props) {
             </button>
           )}
           {view === 'audit-log' && (
-            <button
-              onClick={fetchAuditLogs}
-              disabled={loadingLogs}
-              className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px] disabled:opacity-50"
-            >
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <a
+                href={`/api/admin/audit-logs/export${auditQueryString(auditFilters)}`}
+                className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px]"
+              >
+                <Download size={16} />
+                Export CSV
+              </a>
+              <button
+                onClick={() => fetchAuditLogs()}
+                disabled={loadingLogs}
+                className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px] disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -838,6 +892,78 @@ export function AdminShell({ initialSpaces }: Props) {
             )}
           </div>
         ) : view === 'audit-log' ? (
+          <div className="space-y-3">
+            {/* Filter bar */}
+            <div className="rounded-xl border border-snomed-border bg-white shadow-sm p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-snomed-grey/50">Action</label>
+                  <select
+                    value={auditFilters.action}
+                    onChange={(e) => setAuditFilters((f) => ({ ...f, action: e.target.value }))}
+                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
+                  >
+                    <option value="">All actions</option>
+                    {AUDIT_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-snomed-grey/50">Entity</label>
+                  <select
+                    value={auditFilters.entityType}
+                    onChange={(e) => setAuditFilters((f) => ({ ...f, entityType: e.target.value }))}
+                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
+                  >
+                    <option value="">All entities</option>
+                    {AUDIT_ENTITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-snomed-grey/50">User</label>
+                  <input
+                    type="text"
+                    value={auditFilters.user}
+                    onChange={(e) => setAuditFilters((f) => ({ ...f, user: e.target.value }))}
+                    placeholder="Name contains…"
+                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey placeholder:text-snomed-grey/40 focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-snomed-grey/50">From</label>
+                  <input
+                    type="date"
+                    value={auditFilters.from}
+                    onChange={(e) => setAuditFilters((f) => ({ ...f, from: e.target.value }))}
+                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-snomed-grey/50">To</label>
+                  <input
+                    type="date"
+                    value={auditFilters.to}
+                    onChange={(e) => setAuditFilters((f) => ({ ...f, to: e.target.value }))}
+                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
+                  />
+                </div>
+                <button
+                  onClick={() => fetchAuditLogs()}
+                  disabled={loadingLogs}
+                  className="rounded-lg bg-snomed-blue px-4 py-2 text-sm font-medium text-white hover:bg-snomed-blue-dark transition-colors min-h-[40px] disabled:opacity-50"
+                >
+                  Apply
+                </button>
+                {(auditFilters.action || auditFilters.entityType || auditFilters.user || auditFilters.from || auditFilters.to) && (
+                  <button
+                    onClick={() => { setAuditFilters(EMPTY_AUDIT_FILTERS); }}
+                    className="rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px]"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
           <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -902,6 +1028,19 @@ export function AdminShell({ initialSpaces }: Props) {
                 </tbody>
               </table>
             </div>
+          </div>
+
+            {hasMoreLogs && (
+              <div className="flex justify-center pt-1">
+                <button
+                  onClick={() => fetchAuditLogs({ append: true })}
+                  disabled={loadingLogs}
+                  className="rounded-lg border border-snomed-border bg-white px-5 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px] disabled:opacity-50"
+                >
+                  {loadingLogs ? 'Loading…' : 'Load more'}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-3">

@@ -504,6 +504,83 @@ describe('Admin routes — Official Record snapshot', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Audit logs — filtering, pagination & CSV export
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — audit logs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getAuditLogs).mockResolvedValue([]);
+  });
+
+  it('passes parsed filters through to getAuditLogs', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get(
+      '/admin/audit-logs?action=DELETE_SPACE&entityType=SPACE&user=admin&from=2026-01-01&to=2026-12-31&limit=50&offset=10',
+    );
+
+    expect(res.status).toBe(200);
+    expect(db.getAuditLogs).toHaveBeenCalledWith({
+      action: 'DELETE_SPACE',
+      entityType: 'SPACE',
+      user: 'admin',
+      from: '2026-01-01',
+      to: '2026-12-31',
+      limit: 50,
+      offset: 10,
+    });
+  });
+
+  it('treats empty query params as no filter', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs?action=&user=');
+    expect(res.status).toBe(200);
+    expect(db.getAuditLogs).toHaveBeenCalledWith({});
+  });
+
+  it('rejects a malformed date with 400', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs?from=07-04-2026');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_PAYLOAD');
+    expect(db.getAuditLogs).not.toHaveBeenCalled();
+  });
+
+  it('exports CSV with headers and RFC-4180 escaping', async () => {
+    vi.mocked(db.getAuditLogs).mockResolvedValue([
+      {
+        id: 1,
+        timestamp: '2026-07-04 09:00:00',
+        userId: 'u1',
+        userName: 'Ada Lovelace',
+        action: 'UPLOAD_DOCUMENT',
+        entityType: 'DOCUMENT',
+        entityId: 'file-1',
+        details: '{"name":"Q1, Report","note":"has \\"quotes\\""}',
+      },
+    ]);
+
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/audit-logs/export');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('attachment');
+    expect(res.text.split('\r\n')[0]).toBe(
+      'timestamp,userName,userId,action,entityType,entityId,details',
+    );
+    // details contains a comma and quotes → must be wrapped and quotes doubled
+    expect(res.text).toContain('"{""name"":""Q1, Report""');
+  });
+
+  it('export requires admin', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).get('/admin/audit-logs/export');
+    expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // icalUrl validation — POST /admin/spaces
 // ---------------------------------------------------------------------------
 
