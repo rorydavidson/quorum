@@ -20,6 +20,7 @@ vi.mock('../services/db.js', () => ({
   restoreBackup: vi.fn(),
   createAuditLog: vi.fn().mockResolvedValue(undefined),
   getAuditLogs: vi.fn().mockResolvedValue([]),
+  getUsageMetrics: vi.fn(),
   default: {},
 }));
 
@@ -504,6 +505,44 @@ describe('Admin routes — Official Record snapshot', () => {
       .send({ fileName: 'Report.pdf' });
 
     expect(res.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Usage metrics
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — usage metrics', () => {
+  const bundle = {
+    generatedAt: '2026-07-04T00:00:00Z',
+    totals: { views: 10, uniqueUsers: 3 },
+    last24h: { views: 2, uniqueUsers: 2 },
+    last7d: { views: 6, uniqueUsers: 3 },
+    last30d: { views: 10, uniqueUsers: 3 },
+    daily: [],
+    perSpace: [{ spaceId: 'board', views: 5, uniqueUsers: 2 }],
+    topPaths: [{ path: '/dashboard', views: 4 }],
+    activeUsers: [{ userId: 'u1', userName: 'Member', views: 5, lastSeen: '2026-07-04T00:00:00Z' }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getUsageMetrics).mockResolvedValue(bundle);
+  });
+
+  it('returns the metrics bundle for an admin', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/metrics');
+    expect(res.status).toBe(200);
+    expect(res.body.totals.uniqueUsers).toBe(3);
+    expect(res.body.perSpace[0].spaceId).toBe('board');
+  });
+
+  it('is forbidden for non-admins', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).get('/admin/metrics');
+    expect(res.status).toBe(403);
+    expect(db.getUsageMetrics).not.toHaveBeenCalled();
   });
 });
 

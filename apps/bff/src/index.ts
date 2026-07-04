@@ -18,6 +18,7 @@ import searchRouter from "./routes/search.js";
 import eventsRouter from "./routes/events.js";
 import forumRouter from "./routes/forum.js";
 import notificationsRouter from "./routes/notifications.js";
+import metricsRouter from "./routes/metrics.js";
 import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 import { logger, reqLog } from "./services/logger.js";
@@ -177,6 +178,9 @@ app.use("/search", searchLimiter, searchRouter);
 app.use("/events", eventsRouter);
 app.use("/forum", forumRouter);
 app.use("/notifications", notificationsRouter);
+// Page-view beacon — not under CSRF so it can use navigator.sendBeacon; the
+// worst a forged request can do is inflate the caller's own view count.
+app.use("/metrics", metricsRouter);
 
 // ---------------------------------------------------------------------------
 // Global Error Handler

@@ -159,3 +159,51 @@ export interface NotificationSubscription {
   email: string;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Usage metrics / analytics
+// ---------------------------------------------------------------------------
+
+/** Aggregate counters over a time window. */
+export interface UsageWindow {
+  views: number;
+  uniqueUsers: number;
+}
+
+/** Page views + unique users for a single calendar day (UTC). */
+export interface DailyUsage {
+  date: string; // YYYY-MM-DD
+  views: number;
+  uniqueUsers: number;
+}
+
+export interface SpaceUsage {
+  spaceId: string;
+  views: number;
+  uniqueUsers: number;
+}
+
+export interface PathUsage {
+  path: string;
+  views: number;
+}
+
+export interface ActiveUser {
+  userId: string;
+  userName: string;
+  views: number;
+  lastSeen: string; // ISO 8601
+}
+
+/** The full analytics bundle returned by GET /admin/metrics. */
+export interface UsageMetrics {
+  generatedAt: string;
+  totals: UsageWindow;
+  last24h: UsageWindow;
+  last7d: UsageWindow;
+  last30d: UsageWindow;
+  daily: DailyUsage[]; // last 30 days, oldest → newest, zero-filled
+  perSpace: SpaceUsage[];
+  topPaths: PathUsage[];
+  activeUsers: ActiveUser[];
+}

@@ -1,4 +1,4 @@
-import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig, DocumentReader } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, DriveFile, CalendarEvent, SearchResult, SessionUser, EventMetadata, DiscoursePost, HierarchyCategoryConfig, DocumentReader, UsageMetrics } from '@snomed/types';
 import { csrfFetch, getCsrfToken } from './csrf';
 
 // ---------------------------------------------------------------------------
@@ -160,6 +160,19 @@ export async function getDocumentReaders(spaceId: string, fileId: string): Promi
   if (!res.ok) throw new Error('Failed to load readers');
   const data = await res.json() as { readers: DocumentReader[] };
   return data.readers;
+}
+
+// ---------------------------------------------------------------------------
+// Usage metrics (admin, client-side)
+// ---------------------------------------------------------------------------
+
+export async function getAdminMetrics(): Promise<UsageMetrics> {
+  const res = await fetch('/api/admin/metrics');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to load metrics' })) as { error?: string };
+    throw new Error(err.error ?? 'Failed to load metrics');
+  }
+  return res.json() as Promise<UsageMetrics>;
 }
 
 // ---------------------------------------------------------------------------
