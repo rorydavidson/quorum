@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Eye, BarChart3, Loader2 } from 'lucide-react';
+import { Users, Eye, BarChart3, Loader2, ShieldCheck } from 'lucide-react';
 import type { UsageMetrics } from '@snomed/types';
 import { getAdminMetrics } from '@/lib/api-client';
 
@@ -59,7 +59,7 @@ export function MetricsPanel({ spaceNames = {} }: { spaceNames?: Record<string, 
     <div className="space-y-6">
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Active users · 24h" value={metrics.last24h.uniqueUsers} sub={`${metrics.last24h.views.toLocaleString()} views`} icon={<Users size={13} aria-hidden="true" />} />
+        <StatCard label="Active users · today" value={metrics.today.uniqueUsers} sub={`${metrics.today.views.toLocaleString()} views`} icon={<Users size={13} aria-hidden="true" />} />
         <StatCard label="Active users · 7d" value={metrics.last7d.uniqueUsers} sub={`${metrics.last7d.views.toLocaleString()} views`} icon={<Users size={13} aria-hidden="true" />} />
         <StatCard label="Active users · 30d" value={metrics.last30d.uniqueUsers} sub={`${metrics.last30d.views.toLocaleString()} views`} icon={<Users size={13} aria-hidden="true" />} />
         <StatCard label="Total page views" value={metrics.totals.views} sub={`${metrics.totals.uniqueUsers.toLocaleString()} users all-time`} icon={<Eye size={13} aria-hidden="true" />} />
@@ -106,7 +106,6 @@ export function MetricsPanel({ spaceNames = {} }: { spaceNames?: Record<string, 
                   <tr key={s.spaceId} className="hover:bg-gray-50">
                     <td className="px-5 py-2.5 text-snomed-grey">{spaceNames[s.spaceId] ?? s.spaceId}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/70">{s.views.toLocaleString()} views</td>
-                    <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/50">{s.uniqueUsers.toLocaleString()} users</td>
                   </tr>
                 ))}
               </tbody>
@@ -136,37 +135,18 @@ export function MetricsPanel({ spaceNames = {} }: { spaceNames?: Record<string, 
         </div>
       </div>
 
-      {/* Active users */}
-      <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
-        <div className="border-b border-snomed-border bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-snomed-grey/60">
-          Recently active users
-        </div>
-        {metrics.activeUsers.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-snomed-grey/50">No activity recorded yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-snomed-border text-left text-[10px] uppercase tracking-wide text-snomed-grey/50">
-                <th className="px-5 py-2 font-semibold">User</th>
-                <th className="px-5 py-2 font-semibold text-right">Views</th>
-                <th className="px-5 py-2 font-semibold text-right">Last seen</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-snomed-border">
-              {metrics.activeUsers.map((u) => (
-                <tr key={u.userId} className="hover:bg-gray-50">
-                  <td className="px-5 py-2.5 text-snomed-grey">{u.userName}</td>
-                  <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/70">{u.views.toLocaleString()}</td>
-                  <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/50">{formatDateTime(u.lastSeen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      {/* Privacy note */}
+      <div className="flex items-start gap-2 rounded-xl border border-snomed-border bg-snomed-blue-light/40 px-4 py-3 text-xs text-snomed-grey/70">
+        <ShieldCheck size={15} className="mt-0.5 flex-shrink-0 text-snomed-blue" aria-hidden="true" />
+        <span>
+          Aggregate, first-party analytics — no third-party trackers, and no record of
+          which member viewed which page. Unique-user counts come from anonymous,
+          irreversible visitor tokens.
+        </span>
       </div>
 
       <p className="text-center text-[11px] text-snomed-grey/40">
-        First-party analytics · generated {formatDateTime(metrics.generatedAt)}
+        Generated {formatDateTime(metrics.generatedAt)}
       </p>
     </div>
   );

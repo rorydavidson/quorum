@@ -180,7 +180,6 @@ export interface DailyUsage {
 export interface SpaceUsage {
   spaceId: string;
   views: number;
-  uniqueUsers: number;
 }
 
 export interface PathUsage {
@@ -188,22 +187,19 @@ export interface PathUsage {
   views: number;
 }
 
-export interface ActiveUser {
-  userId: string;
-  userName: string;
-  views: number;
-  lastSeen: string; // ISO 8601
-}
-
-/** The full analytics bundle returned by GET /admin/metrics. */
+/**
+ * The aggregate analytics bundle returned by GET /admin/metrics.
+ * Deliberately aggregate-only: no per-user rows, so it cannot reveal which
+ * member viewed which page. `uniqueUsers` counts are derived from opaque,
+ * irreversible visitor tokens.
+ */
 export interface UsageMetrics {
   generatedAt: string;
   totals: UsageWindow;
-  last24h: UsageWindow;
+  today: UsageWindow;
   last7d: UsageWindow;
   last30d: UsageWindow;
   daily: DailyUsage[]; // last 30 days, oldest → newest, zero-filled
   perSpace: SpaceUsage[];
   topPaths: PathUsage[];
-  activeUsers: ActiveUser[];
 }

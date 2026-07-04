@@ -516,13 +516,12 @@ describe('Admin routes — usage metrics', () => {
   const bundle = {
     generatedAt: '2026-07-04T00:00:00Z',
     totals: { views: 10, uniqueUsers: 3 },
-    last24h: { views: 2, uniqueUsers: 2 },
+    today: { views: 2, uniqueUsers: 2 },
     last7d: { views: 6, uniqueUsers: 3 },
     last30d: { views: 10, uniqueUsers: 3 },
     daily: [],
-    perSpace: [{ spaceId: 'board', views: 5, uniqueUsers: 2 }],
+    perSpace: [{ spaceId: 'board', views: 5 }],
     topPaths: [{ path: '/dashboard', views: 4 }],
-    activeUsers: [{ userId: 'u1', userName: 'Member', views: 5, lastSeen: '2026-07-04T00:00:00Z' }],
   };
 
   beforeEach(() => {

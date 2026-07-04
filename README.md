@@ -18,7 +18,7 @@ A bespoke governance portal replacing use of services like Atlassian Confluence 
 - **Unified search** — full-text search across Drive documents, calendar events, and event metadata via ⌘K command palette
 - **Admin dashboard** — portal admins can create and configure spaces, document sections, and view system-wide audit logs
 - **Comprehensive Audit Logging** — every state-changing action is recorded (who, what, when, details) and viewable by admins, with filtering (action, entity, user, date range), pagination, and CSV export
-- **Usage analytics** — first-party, server-side page-view metrics (no third-party trackers): active users (24h/7d/30d), total views, a 30-day trend, per-space and top-page breakdowns, and recently-active users, shown on an admin Analytics dashboard
+- **Usage analytics** — first-party, aggregate page-view metrics (no third-party trackers, no per-member page tracking): active users (today/7d/30d), total views, a 30-day trend, and per-space / top-page breakdowns, shown on an admin Analytics dashboard
 - **Read receipts** — members can mark documents as read; admins/secretariat can see who has read each document ("who is prepared")
 - **Email notifications ("Notify me")** — members opt in per space and are emailed when a new document, Official Record, or meeting document lands (SMTP-backed; logs in mock mode when SMTP is unconfigured)
 - **Official Records** — files prefixed with `_OFFICIAL_RECORD_` are tagged distinctly in listings and search
@@ -493,7 +493,9 @@ The **Audit Log** tab provides a real-time feed of all modifications:
 - **Filtering & export**: Narrow the feed by action, entity type, user, and date range; page through results with **Load more**; and **Export CSV** to download the filtered set for compliance or record-keeping.
 
 ### Analytics
-The **Analytics** tab shows first-party usage metrics: active users over the last 24 hours / 7 days / 30 days, total page views, a 30-day views trend, a per-space breakdown, top pages, and recently-active users. Page views are recorded server-side via a lightweight beacon (`POST /metrics/view`) sent by the portal on each navigation — there are **no third-party trackers or cookies**; data lives in the app's own database. Admin pages are excluded from tracking. Because the metrics identify individual board members, treat the Analytics tab as sensitive (it's admin-only); if per-user visibility isn't wanted for your governance context, the recording can be reduced to aggregate-only counts.
+The **Analytics** tab shows first-party usage metrics: active users today / last 7 days / last 30 days, total page views, a 30-day views trend, and per-space and top-page breakdowns. Page views are recorded server-side via a lightweight beacon (`POST /metrics/view`) sent by the portal on each navigation — there are **no third-party trackers or cookies**; data lives in the app's own database.
+
+The data is **aggregate only**: it counts views and active users but never records which member viewed which page. Views are stored as anonymous per-page/per-day counts, and unique-user counts come from an opaque, irreversible visitor token (an HMAC of the user id with the server secret) recorded per day — so no names or reversible identifiers are kept. Admin pages are excluded from tracking.
 
 ### Read Receipts
 On any document list, members can mark a document as **read** (the toggle in the *Read* column). Admins and secretariat see a **Read by** control per document showing who has read it and when — useful for confirming a board is prepared ahead of a meeting.

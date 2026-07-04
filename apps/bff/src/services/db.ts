@@ -15,7 +15,6 @@ import {
   DailyUsage,
   SpaceUsage,
   PathUsage,
-  ActiveUser,
 } from "@snomed/types";
 
 // ---------------------------------------------------------------------------
@@ -195,21 +194,37 @@ export async function runMigrations(): Promise<void> {
     logger.info("[db] Created notification_subscriptions table");
   }
 
-  // First-party usage analytics — one row per portal page view.
-  const hasPageViews = await db.schema.hasTable("page_views");
-  if (!hasPageViews) {
-    await db.schema.createTable("page_views", (t) => {
-      t.increments("id").primary();
-      t.string("user_id").notNullable();
-      t.string("user_name").notNullable();
+  // First-party usage analytics — aggregate only (no per-user page tracking).
+  // Retire any earlier per-view table so no identifiable rows linger.
+  await db.schema.dropTableIfExists("page_views");
+
+  // Anonymous per-page, per-day view counts (no user identity at all).
+  const hasViewCounts = await db.schema.hasTable("page_view_counts");
+  if (!hasViewCounts) {
+    await db.schema.createTable("page_view_counts", (t) => {
+      t.string("day").notNullable(); // YYYY-MM-DD (UTC)
       t.string("path").notNullable();
       t.string("space_id").nullable();
-      t.timestamp("created_at").notNullable().defaultTo(db.fn.now());
-      t.index(["created_at"]);
-      t.index(["space_id", "created_at"]);
-      t.index(["user_id", "created_at"]);
+      t.integer("views").notNullable().defaultTo(0);
+      t.primary(["day", "path"]);
+      t.index(["day"]);
     });
-    logger.info("[db] Created page_views table");
+    logger.info("[db] Created page_view_counts table");
+  }
+
+  // Anonymous active-user presence: records only that some opaque, irreversible
+  // visitor token was active on a day — never which pages they saw. Used solely
+  // to count distinct active users. The token is an HMAC of the user id with a
+  // server secret, so it cannot be reversed and no names are stored.
+  const hasVisitors = await db.schema.hasTable("active_visitors");
+  if (!hasVisitors) {
+    await db.schema.createTable("active_visitors", (t) => {
+      t.string("day").notNullable(); // YYYY-MM-DD (UTC)
+      t.string("visitor_hash").notNullable();
+      t.primary(["day", "visitor_hash"]);
+      t.index(["day"]);
+    });
+    logger.info("[db] Created active_visitors table");
   }
 }
 
@@ -857,106 +872,104 @@ export async function getUserSubscriptions(
 // Usage analytics
 // ---------------------------------------------------------------------------
 
-/** Records a single portal page view. */
-export async function recordPageView(input: {
-  userId: string;
-  userName: string;
-  path: string;
-  spaceId?: string;
-}): Promise<void> {
-  await db("page_views").insert({
-    user_id: input.userId,
-    user_name: input.userName,
-    path: input.path,
-    space_id: input.spaceId ?? null,
-  });
-}
-
-// DB timestamps are stored via db.fn.now(): SQLite as "YYYY-MM-DD HH:MM:SS"
-// (UTC text), Postgres as a timestamp. Comparisons use a matching UTC string.
-function sinceIso(msAgo: number): string {
-  return new Date(Date.now() - msAgo).toISOString().slice(0, 19).replace("T", " ");
+function utcDay(msAgo = 0): string {
+  return new Date(Date.now() - msAgo).toISOString().slice(0, 10);
 }
 
 function toNum(v: unknown): number {
   return typeof v === "number" ? v : parseInt(String(v ?? 0), 10) || 0;
 }
 
-/** created_at comes back as a Date (pg) or string (sqlite). */
-function dayKey(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v).slice(0, 10);
-}
+/**
+ * Records a page view in aggregate form only:
+ *  - bumps the anonymous view count for (day, path)
+ *  - marks the opaque visitor token active for the day (for unique counts)
+ * No user identity and no who-viewed-what linkage is stored.
+ */
+export async function recordPageView(input: {
+  path: string;
+  spaceId?: string;
+  visitorHash: string;
+}): Promise<void> {
+  const day = utcDay();
 
-function toIso(v: unknown): string {
-  if (v instanceof Date) return v.toISOString();
-  const s = String(v);
-  return s.includes("T") ? s : s.replace(" ", "T") + "Z";
-}
+  await db("page_view_counts")
+    .insert({ day, path: input.path, space_id: input.spaceId ?? null, views: 1 })
+    .onConflict(["day", "path"])
+    .merge({ views: db.raw("?? + 1", ["page_view_counts.views"]) });
 
-async function usageWindow(since?: string): Promise<UsageWindow> {
-  const q = db("page_views")
-    .count({ views: "*" })
-    .countDistinct({ users: "user_id" });
-  if (since) q.where("created_at", ">=", since);
-  const [row] = await q;
-  return { views: toNum(row?.views), uniqueUsers: toNum(row?.users) };
+  await db("active_visitors")
+    .insert({ day, visitor_hash: input.visitorHash })
+    .onConflict(["day", "visitor_hash"])
+    .ignore();
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Builds the full analytics bundle for the admin dashboard. */
-export async function getUsageMetrics(): Promise<UsageMetrics> {
-  const since30 = sinceIso(30 * DAY_MS);
+/** Distinct active users (opaque tokens) since the given UTC day, inclusive. */
+async function uniqueUsersSince(day: string): Promise<number> {
+  const [row] = await db("active_visitors")
+    .where("day", ">=", day)
+    .countDistinct({ users: "visitor_hash" });
+  return toNum(row?.users);
+}
 
-  const [totals, last24h, last7d, last30d] = await Promise.all([
+/** Total views since the given UTC day, inclusive. */
+async function viewsSince(day?: string): Promise<number> {
+  const q = db("page_view_counts").sum({ views: "views" });
+  if (day) q.where("day", ">=", day);
+  const [row] = await q;
+  return toNum(row?.views);
+}
+
+async function usageWindow(day?: string): Promise<UsageWindow> {
+  const [views, uniqueUsers] = await Promise.all([
+    viewsSince(day),
+    day ? uniqueUsersSince(day) : uniqueUsersSince("0000-00-00"),
+  ]);
+  return { views, uniqueUsers };
+}
+
+/** Builds the aggregate analytics bundle for the admin dashboard. */
+export async function getUsageMetrics(): Promise<UsageMetrics> {
+  const today = utcDay();
+  const day7 = utcDay(6 * DAY_MS);
+  const day30 = utcDay(29 * DAY_MS);
+
+  const [totals, todayWindow, last7d, last30d] = await Promise.all([
     usageWindow(),
-    usageWindow(sinceIso(DAY_MS)),
-    usageWindow(sinceIso(7 * DAY_MS)),
-    usageWindow(since30),
+    usageWindow(today),
+    usageWindow(day7),
+    usageWindow(day30),
   ]);
 
-  // Time series — aggregate the last 30 days in JS to stay DB-agnostic.
-  const recent = await db("page_views")
-    .where("created_at", ">=", since30)
-    .select("created_at", "user_id");
-  const byDay = new Map<string, { views: number; users: Set<string> }>();
-  for (const r of recent) {
-    const key = dayKey(r.created_at);
-    const bucket = byDay.get(key) ?? { views: 0, users: new Set<string>() };
-    bucket.views += 1;
-    bucket.users.add(String(r.user_id));
-    byDay.set(key, bucket);
-  }
+  // Daily series — views from counts, unique users from presence, per day.
+  const [viewsByDay, usersByDay] = await Promise.all([
+    db("page_view_counts").where("day", ">=", day30).select("day").sum({ views: "views" }).groupBy("day") as unknown as Promise<Array<{ day: string; views: number | string }>>,
+    db("active_visitors").where("day", ">=", day30).select("day").count({ users: "visitor_hash" }).groupBy("day") as unknown as Promise<Array<{ day: string; users: number | string }>>,
+  ]);
+  const viewsMap = new Map(viewsByDay.map((r) => [String(r.day), toNum(r.views)]));
+  const usersMap = new Map(usersByDay.map((r) => [String(r.day), toNum(r.users)]));
   const daily: DailyUsage[] = [];
   for (let i = 29; i >= 0; i--) {
-    const date = new Date(Date.now() - i * DAY_MS).toISOString().slice(0, 10);
-    const b = byDay.get(date);
-    daily.push({ date, views: b?.views ?? 0, uniqueUsers: b?.users.size ?? 0 });
+    const date = utcDay(i * DAY_MS);
+    daily.push({ date, views: viewsMap.get(date) ?? 0, uniqueUsers: usersMap.get(date) ?? 0 });
   }
 
-  // knex loses the selected columns from its inferred type when combined with
-  // aggregates, so cast each grouped result to its real row shape.
-  const perSpaceRows = (await db("page_views")
+  const perSpaceRows = (await db("page_view_counts")
     .whereNotNull("space_id")
     .select("space_id")
-    .count({ views: "*" })
-    .countDistinct({ users: "user_id" })
+    .sum({ views: "views" })
     .groupBy("space_id")
-    .orderBy("views", "desc")) as unknown as Array<{
-    space_id: string;
-    views: number | string;
-    users: number | string;
-  }>;
+    .orderBy("views", "desc")) as unknown as Array<{ space_id: string; views: number | string }>;
   const perSpace: SpaceUsage[] = perSpaceRows.map((r) => ({
     spaceId: String(r.space_id),
     views: toNum(r.views),
-    uniqueUsers: toNum(r.users),
   }));
 
-  const topPathRows = (await db("page_views")
+  const topPathRows = (await db("page_view_counts")
     .select("path")
-    .count({ views: "*" })
+    .sum({ views: "views" })
     .groupBy("path")
     .orderBy("views", "desc")
     .limit(10)) as unknown as Array<{ path: string; views: number | string }>;
@@ -965,35 +978,15 @@ export async function getUsageMetrics(): Promise<UsageMetrics> {
     views: toNum(r.views),
   }));
 
-  const activeRows = (await db("page_views")
-    .select("user_id", "user_name")
-    .count({ views: "*" })
-    .max({ last_seen: "created_at" })
-    .groupBy("user_id", "user_name")
-    .orderBy("last_seen", "desc")
-    .limit(20)) as unknown as Array<{
-    user_id: string;
-    user_name: string;
-    views: number | string;
-    last_seen: unknown;
-  }>;
-  const activeUsers: ActiveUser[] = activeRows.map((r) => ({
-    userId: String(r.user_id),
-    userName: String(r.user_name),
-    views: toNum(r.views),
-    lastSeen: toIso(r.last_seen),
-  }));
-
   return {
     generatedAt: new Date().toISOString(),
     totals,
-    last24h,
+    today: todayWindow,
     last7d,
     last30d,
     daily,
     perSpace,
     topPaths,
-    activeUsers,
   };
 }
 

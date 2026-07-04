@@ -45,18 +45,20 @@ describe("POST /metrics/view", () => {
     expect(res.status).toBe(401);
   });
 
-  it("records a view and derives the space id from a space path", async () => {
+  it("records a view (aggregate only) and derives the space id from a space path", async () => {
     const app = await createApp(makeUser());
     const res = await request(app)
       .post("/metrics/view")
       .send({ path: "/spaces/board/documents" });
     expect(res.status).toBe(204);
-    expect(db.recordPageView).toHaveBeenCalledWith({
-      userId: "u1",
-      userName: "Member One",
-      path: "/spaces/board/documents",
-      spaceId: "board",
-    });
+    const arg = vi.mocked(db.recordPageView).mock.calls[0][0];
+    expect(arg.path).toBe("/spaces/board/documents");
+    expect(arg.spaceId).toBe("board");
+    // Anonymous, opaque token — no user id or name is passed through.
+    expect(typeof arg.visitorHash).toBe("string");
+    expect(arg.visitorHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(arg).not.toHaveProperty("userId");
+    expect(arg).not.toHaveProperty("userName");
   });
 
   it("records a non-space path with no space id", async () => {
@@ -65,6 +67,14 @@ describe("POST /metrics/view", () => {
     expect(db.recordPageView).toHaveBeenCalledWith(
       expect.objectContaining({ path: "/dashboard", spaceId: undefined }),
     );
+  });
+
+  it("produces a stable token for the same user across views", async () => {
+    const app = await createApp(makeUser());
+    await request(app).post("/metrics/view").send({ path: "/dashboard" });
+    await request(app).post("/metrics/view").send({ path: "/search" });
+    const calls = vi.mocked(db.recordPageView).mock.calls;
+    expect(calls[0][0].visitorHash).toBe(calls[1][0].visitorHash);
   });
 
   it("strips query strings before storing", async () => {

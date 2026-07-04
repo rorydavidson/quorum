@@ -1,10 +1,22 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
+import crypto from "crypto";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { recordPageView } from "../services/db.js";
 
 const router: IRouter = Router();
+
+/**
+ * Opaque, irreversible per-user token used only for distinct-user counting.
+ * HMAC of the user id with the server session secret — stable (so unique
+ * counts hold across days) but unlinkable to the person without the secret,
+ * and no name is ever stored.
+ */
+function visitorHash(userSub: string): string {
+  const secret = process.env.SESSION_SECRET ?? "quorum-analytics";
+  return crypto.createHmac("sha256", secret).update(userSub).digest("hex");
+}
 
 router.use(requireAuth);
 
@@ -33,10 +45,9 @@ router.post(
     const path = parsed.data.path.split(/[?#]/)[0];
 
     await recordPageView({
-      userId: user.sub,
-      userName: user.name,
       path,
       spaceId: spaceIdFromPath(path),
+      visitorHash: visitorHash(user.sub),
     });
 
     res.status(204).end();
