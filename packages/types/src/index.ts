@@ -159,3 +159,47 @@ export interface NotificationSubscription {
   email: string;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Usage metrics / analytics
+// ---------------------------------------------------------------------------
+
+/** Aggregate counters over a time window. */
+export interface UsageWindow {
+  views: number;
+  uniqueUsers: number;
+}
+
+/** Page views + unique users for a single calendar day (UTC). */
+export interface DailyUsage {
+  date: string; // YYYY-MM-DD
+  views: number;
+  uniqueUsers: number;
+}
+
+export interface SpaceUsage {
+  spaceId: string;
+  views: number;
+}
+
+export interface PathUsage {
+  path: string;
+  views: number;
+}
+
+/**
+ * The aggregate analytics bundle returned by GET /admin/metrics.
+ * Deliberately aggregate-only: no per-user rows, so it cannot reveal which
+ * member viewed which page. `uniqueUsers` counts are derived from opaque,
+ * irreversible visitor tokens.
+ */
+export interface UsageMetrics {
+  generatedAt: string;
+  totals: UsageWindow;
+  today: UsageWindow;
+  last7d: UsageWindow;
+  last30d: UsageWindow;
+  daily: DailyUsage[]; // last 30 days, oldest → newest, zero-filled
+  perSpace: SpaceUsage[];
+  topPaths: PathUsage[];
+}

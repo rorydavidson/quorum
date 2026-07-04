@@ -21,12 +21,13 @@ import {
 } from 'lucide-react';
 import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig } from '@snomed/types';
 import { csrfFetch } from '@/lib/csrf';
+import { MetricsPanel } from './MetricsPanel';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order';
+type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order' | 'analytics';
 
 // Known audit actions/entity types for the filter dropdowns (stable enums in the BFF).
 const AUDIT_ACTIONS = [
@@ -774,6 +775,12 @@ export function AdminShell({ initialSpaces }: Props) {
           >
             <h2 className="text-base font-semibold">Audit Log</h2>
           </button>
+          <button
+            onClick={() => setView('analytics')}
+            className={`pb-2 border-b-2 transition-all ${view === 'analytics' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
+          >
+            <h2 className="text-base font-semibold">Analytics</h2>
+          </button>
         </div>
         <div className="flex items-center gap-2">
           {view === 'list' && (
@@ -851,7 +858,9 @@ export function AdminShell({ initialSpaces }: Props) {
       </div>
 
       {
-        view === 'category-order' ? (
+        view === 'analytics' ? (
+          <MetricsPanel spaceNames={Object.fromEntries(spaces.map((s) => [s.id, s.name]))} />
+        ) : view === 'category-order' ? (
           <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-snomed-border bg-gray-50">
               <p className="text-sm text-snomed-grey/60">

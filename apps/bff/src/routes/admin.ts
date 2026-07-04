@@ -17,6 +17,7 @@ import {
   getAuditLogs,
   getCategoryConfigs,
   setCategoryConfigs,
+  getUsageMetrics,
 } from "../services/db.js";
 import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
 import { notifyActivity } from "../services/notifications.js";
@@ -527,6 +528,15 @@ function auditLogsToCsv(logs: Awaited<ReturnType<typeof getAuditLogs>>): string 
   );
   return [header.join(","), ...rows].join("\r\n");
 }
+
+// ---------------------------------------------------------------------------
+// Usage metrics / analytics
+// ---------------------------------------------------------------------------
+
+router.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
+  const metrics = await getUsageMetrics();
+  res.json(metrics);
+});
 
 router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => {
   const parsed = AuditLogQuerySchema.safeParse(cleanQuery(req.query));
