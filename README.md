@@ -446,6 +446,27 @@ pnpm dev
 
 ---
 
+## Testing
+
+```bash
+# Unit + component tests (BFF via vitest/node, web via vitest/jsdom + Testing Library)
+pnpm test
+
+# Coverage (BFF)
+pnpm test:coverage
+
+# End-to-end tests (Playwright — Chromium + iPad emulation)
+pnpm test:e2e
+```
+
+- **BFF** — `vitest` route/service/middleware tests with mocked Google/DB/SMTP (`apps/bff/src/**/*.test.ts`).
+- **Web components** — `@testing-library/react` under `vitest`/jsdom for the key UI (`DocumentList` read receipts & filters, `NotifyMeButton`, `FormattedText` sanitisation, `ErrorState`, the CSRF client) — `apps/web/**/*.test.tsx`.
+- **E2E** — `Playwright` specs in `e2e/` drive the real app booted in **dev-auth-bypass + mock mode** (no Keycloak, Google, Redis or SMTP needed): public landing, dashboard, spaces navigation, document listing, PDF viewer open/close, and the Official Records filter. A second project runs the smoke suite under **iPad Pro emulation** for touch/layout coverage. `globalSetup` builds shared types and seeds sample spaces into a throwaway SQLite DB; Playwright starts the BFF and web dev servers automatically.
+
+> The E2E stack relies on the BFF's mock mode (sample Drive files) and the `DEV_AUTH_BYPASS` dev-only bypass, so it never contacts external services. In CI a dedicated job installs Chromium and runs the full suite.
+
+---
+
 ## Admin: Configuring Spaces & System Health
 
 Log in with a Keycloak account in the `portal_admin` group, then navigate to `/admin`.

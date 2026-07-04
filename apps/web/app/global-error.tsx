@@ -22,7 +22,7 @@ export default function GlobalError({
     <html lang="en">
       <body
         style={{
-          fontFamily: 'Inter, system-ui, sans-serif',
+          fontFamily: '"Google Sans", Inter, system-ui, sans-serif',
           background: '#F5F6F7',
           color: '#4D5057',
           display: 'flex',
