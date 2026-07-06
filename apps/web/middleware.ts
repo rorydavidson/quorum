@@ -53,11 +53,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   let sessionOk = false;
   let userHeader: string | undefined;
 
+  // Forward the real client IP (set by nginx on the inbound request) so BFF
+  // rate limits apply per user, not per web container.
+  const forwardedFor = request.headers.get("x-forwarded-for");
+
   try {
     const sessionRes = await fetch(`${BFF_URL}/auth/session`, {
       headers: {
         // Forward all cookies (session cookie lives here)
         cookie: request.headers.get("cookie") ?? "",
+        ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
       },
       // Edge runtime doesn't support keepAlive — plain fetch is fine
     });
@@ -77,7 +82,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!sessionOk) {
-    // Redirect to the BFF login endpoint via the Next.js auth proxy
+    // API calls (fetch/XHR/sendBeacon) must get a clean JSON 401, not a
+    // redirect — following the redirect chain lands the fetch on the Keycloak
+    // login page, which surfaces as opaque errors like a failed CSRF fetch.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Not authenticated", code: "UNAUTHENTICATED" },
+        { status: 401 },
+      );
+    }
+
+    // Page navigations: redirect to the BFF login endpoint via the auth proxy
     const loginUrl = new URL("/api/auth/login", request.url);
     // Preserve the original destination so we can redirect back after login
     loginUrl.searchParams.set("next", pathname);

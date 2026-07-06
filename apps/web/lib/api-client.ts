@@ -9,8 +9,13 @@ import { csrfFetch, getCsrfToken } from './csrf';
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
 interface FetchOptions {
-  /** Cookie header to forward — pass from incoming request headers in server components. */
-  cookie?: string;
+  /**
+   * Headers to forward to the BFF — pass `await bffGetHeaders()` from a server
+   * component. Includes the session cookie and the real client IP
+   * (x-forwarded-for) so BFF per-IP rate limits apply per user rather than
+   * collapsing onto this web container's IP.
+   */
+  forward?: Record<string, string>;
   cache?: RequestCache;
   next?: NextFetchRequestConfig;
 }
@@ -18,8 +23,8 @@ interface FetchOptions {
 async function bffFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...options.forward,
   };
-  if (options.cookie) headers['cookie'] = options.cookie;
 
   const res = await fetch(`${BFF_URL}${path}`, {
     headers,
@@ -54,8 +59,8 @@ export interface SectionWithFiles {
  * Fetch all spaces accessible to the current user.
  * Call from server components — pass the incoming cookie header.
  */
-export async function getAccessibleSpaces(cookie: string): Promise<SpaceConfig[]> {
-  return bffFetch<SpaceConfig[]>('/documents', { cookie, next: { revalidate: 30 } });
+export async function getAccessibleSpaces(fwd: Record<string, string>): Promise<SpaceConfig[]> {
+  return bffFetch<SpaceConfig[]>('/documents', { forward: fwd, next: { revalidate: 30 } });
 }
 
 /**
@@ -63,10 +68,10 @@ export async function getAccessibleSpaces(cookie: string): Promise<SpaceConfig[]
  * Returns an empty array gracefully if no configs have been saved yet.
  * Call from server components — pass the incoming cookie header.
  */
-export async function getCategoryConfigs(cookie: string): Promise<HierarchyCategoryConfig[]> {
+export async function getCategoryConfigs(fwd: Record<string, string>): Promise<HierarchyCategoryConfig[]> {
   try {
     return await bffFetch<HierarchyCategoryConfig[]>('/documents/categories', {
-      cookie,
+      forward: fwd,
       next: { revalidate: 60 },
     });
   } catch {
@@ -77,11 +82,11 @@ export async function getCategoryConfigs(cookie: string): Promise<HierarchyCateg
 /**
  * Fetch files for a specific space.
  */
-export async function getSpaceFiles(spaceId: string, cookie: string, folderId?: string): Promise<SpaceWithFiles> {
+export async function getSpaceFiles(spaceId: string, fwd: Record<string, string>, folderId?: string): Promise<SpaceWithFiles> {
   let url = `/documents/${spaceId}`;
   if (folderId) url += `?folderId=${encodeURIComponent(folderId)}`;
   return bffFetch<SpaceWithFiles>(url, {
-    cookie,
+    forward: fwd,
     cache: 'no-store', // always fresh — sections change via admin
   });
 }
@@ -92,13 +97,13 @@ export async function getSpaceFiles(spaceId: string, cookie: string, folderId?: 
 export async function getSectionFiles(
   spaceId: string,
   sectionId: string,
-  cookie: string,
+  fwd: Record<string, string>,
   folderId?: string
 ): Promise<SectionWithFiles> {
   let url = `/documents/${spaceId}/sections/${sectionId}`;
   if (folderId) url += `?folderId=${encodeURIComponent(folderId)}`;
   return bffFetch<SectionWithFiles>(url, {
-    cookie,
+    forward: fwd,
     cache: 'no-store',
   });
 }
@@ -130,11 +135,11 @@ export function fileForceDownloadUrl(spaceId: string, fileId: string): string {
  * Fetch the file IDs the current user has marked as read within a space.
  * Server-side (pass cookie). Returns [] gracefully on failure.
  */
-export async function getSpaceReadFileIds(spaceId: string, cookie: string): Promise<string[]> {
+export async function getSpaceReadFileIds(spaceId: string, fwd: Record<string, string>): Promise<string[]> {
   try {
     const data = await bffFetch<{ readFileIds: string[] }>(
       `/documents/${spaceId}/reads`,
-      { cookie, cache: 'no-store' },
+      { forward: fwd, cache: 'no-store' },
     );
     return data.readFileIds;
   } catch {
@@ -211,12 +216,12 @@ export async function unsubscribeFromSpaceNotifications(spaceId: string): Promis
  * Call from server components — pass the incoming cookie header.
  */
 export async function getUpcomingEvents(
-  cookie: string,
+  fwd: Record<string, string>,
   limit = 10,
   days = 30
 ): Promise<CalendarEvent[]> {
   return bffFetch<CalendarEvent[]>(`/calendar?limit=${limit}&days=${days}`, {
-    cookie,
+    forward: fwd,
     cache: 'no-store',
   });
 }
@@ -227,13 +232,13 @@ export async function getUpcomingEvents(
  */
 export async function getSpaceEvents(
   spaceId: string,
-  cookie: string,
+  fwd: Record<string, string>,
   limit = 5,
   days = 90
 ): Promise<CalendarEvent[]> {
   return bffFetch<CalendarEvent[]>(
     `/calendar?spaceId=${encodeURIComponent(spaceId)}&limit=${limit}&days=${days}`,
-    { cookie, cache: 'no-store' }
+    { forward: fwd, cache: 'no-store' }
   );
 }
 
@@ -243,11 +248,11 @@ export async function getSpaceEvents(
 export async function getEventDetails(
   spaceId: string,
   eventId: string,
-  cookie: string
+  fwd: Record<string, string>
 ): Promise<{ event: CalendarEvent; metadata: EventMetadata }> {
   return bffFetch<{ event: CalendarEvent; metadata: EventMetadata }>(
     `/calendar/${spaceId}/${eventId}`,
-    { cookie, cache: 'no-store' }
+    { forward: fwd, cache: 'no-store' }
   );
 }
 
@@ -261,12 +266,12 @@ export async function getEventDetails(
  */
 export async function getSpaceForumTopics(
   spaceId: string,
-  cookie: string,
+  fwd: Record<string, string>,
   limit = 5,
 ): Promise<DiscoursePost[]> {
   return bffFetch<DiscoursePost[]>(
     `/forum?spaceId=${encodeURIComponent(spaceId)}&limit=${limit}`,
-    { cookie, cache: 'no-store' }
+    { forward: fwd, cache: 'no-store' }
   );
 }
 
@@ -280,13 +285,13 @@ export async function getSpaceForumTopics(
  */
 export async function searchAll(
   q: string,
-  cookie: string,
+  fwd: Record<string, string>,
   limit = 20
 ): Promise<SearchResult[]> {
   if (q.trim().length < 2) return [];
   return bffFetch<SearchResult[]>(
     `/search?q=${encodeURIComponent(q)}&limit=${limit}`,
-    { cookie, cache: 'no-store' }
+    { forward: fwd, cache: 'no-store' }
   );
 }
 
@@ -475,10 +480,10 @@ export async function createFolderInSpace(
 export async function getEventMetadata(
   spaceId: string,
   eventId: string,
-  cookie: string
+  fwd: Record<string, string>
 ): Promise<EventMetadata> {
   return bffFetch<EventMetadata>(`/events/${spaceId}/${eventId}`, {
-    cookie,
+    forward: fwd,
     cache: 'no-store',
   });
 }

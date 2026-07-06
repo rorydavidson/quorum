@@ -1,13 +1,12 @@
 // GET /api/csrf-token — proxies the BFF's per-session CSRF token to the client.
-import { cookies } from 'next/headers';
+import { bffGetHeaders } from '@/lib/bff';
 import { NextResponse } from 'next/server';
 
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
 export async function GET() {
-  const cookieStore = await cookies();
   const res = await fetch(`${BFF_URL}/csrf-token`, {
-    headers: { cookie: cookieStore.toString() },
+    headers: await bffGetHeaders(),
   });
 
   const text = await res.text();

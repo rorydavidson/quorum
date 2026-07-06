@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { FileText } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSpaceFiles, getUserFromHeaders, getSpaceReadFileIds } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SpaceWithFiles } from '@/lib/api-client';
 
@@ -15,7 +16,7 @@ export default async function SpaceDocumentsPage({ params, searchParams }: Props
   const { spaceId } = await params;
   const { folderId } = await searchParams;
   const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
   const user = getUserFromHeaders(headerStore);
 
   let data: SpaceWithFiles | null = null;
@@ -23,8 +24,8 @@ export default async function SpaceDocumentsPage({ params, searchParams }: Props
 
   let readFileIds: string[] = [];
   try {
-    data = await getSpaceFiles(spaceId, cookie, folderId);
-    readFileIds = await getSpaceReadFileIds(spaceId, cookie);
+    data = await getSpaceFiles(spaceId, fwd, folderId);
+    readFileIds = await getSpaceReadFileIds(spaceId, fwd);
   } catch (err) {
     error = (err as Error).message;
   }

@@ -1,4 +1,3 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSpaceFiles, getSpaceEvents, getSpaceForumTopics } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import type { SpaceWithFiles } from '@/lib/api-client';
 import type { CalendarEvent, DiscoursePost, DriveFile, SpaceSection } from '@snomed/types';
 import { ForumWidget } from '@/components/forum/ForumWidget';
@@ -137,8 +137,7 @@ function EventRow({ spaceId, event }: { spaceId: string; event: CalendarEvent })
 
 export default async function SpaceLandingPage({ params }: Props) {
   const { spaceId } = await params;
-  const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
 
   let data: SpaceWithFiles | null = null;
   let error: string | null = null;
@@ -146,9 +145,9 @@ export default async function SpaceLandingPage({ params }: Props) {
   let forumTopics: DiscoursePost[] = [];
 
   const [spaceResult, eventsResult, forumResult] = await Promise.allSettled([
-    getSpaceFiles(spaceId, cookie),
-    getSpaceEvents(spaceId, cookie, 5, 90),
-    getSpaceForumTopics(spaceId, cookie, 5),
+    getSpaceFiles(spaceId, fwd),
+    getSpaceEvents(spaceId, fwd, 5, 90),
+    getSpaceForumTopics(spaceId, fwd, 5),
   ]);
 
   if (spaceResult.status === 'fulfilled') {

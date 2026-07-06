@@ -1,9 +1,9 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, MapPin, ExternalLink } from "lucide-react";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { getEventDetails } from "@/lib/api-client";
+import { bffGetHeaders } from "@/lib/bff";
 import { EventForm } from "./EventForm";
 import { FormattedText } from "@/components/common/FormattedText";
 
@@ -13,12 +13,11 @@ interface Props {
 
 export default async function EventPage({ params }: Props) {
     const { spaceId, eventId } = await params;
-    const headerStore = await headers();
-    const cookie = headerStore.get("cookie") ?? "";
+    const fwd = await bffGetHeaders();
 
     let data;
     try {
-        data = await getEventDetails(spaceId, eventId, cookie);
+        data = await getEventDetails(spaceId, eventId, fwd);
     } catch (err) {
         console.error(`[event-page] Failed to fetch event ${eventId}:`, err);
         return notFound();

@@ -1,13 +1,12 @@
 // GET /api/admin/metrics — proxy the BFF usage-metrics bundle (admin only).
-import { cookies } from 'next/headers';
+import { bffGetHeaders } from '@/lib/bff';
 import { NextResponse } from 'next/server';
 
 const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 
 export async function GET() {
-  const cookieStore = await cookies();
   const res = await fetch(`${BFF_URL}/admin/metrics`, {
-    headers: { cookie: cookieStore.toString() },
+    headers: await bffGetHeaders(),
   });
 
   if (!res.ok) {

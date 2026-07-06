@@ -1,19 +1,18 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import { FolderOpen } from 'lucide-react';
 import { getAccessibleSpaces, getCategoryConfigs } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import type { SpaceConfig } from '@snomed/types';
 
 export default async function SpacesPage() {
-  const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
 
   let spaces: SpaceConfig[] = [];
   let error: string | null = null;
 
   const [spacesResult, categoryConfigs] = await Promise.allSettled([
-    getAccessibleSpaces(cookie),
-    getCategoryConfigs(cookie),
+    getAccessibleSpaces(fwd),
+    getCategoryConfigs(fwd),
   ]);
 
   if (spacesResult.status === 'fulfilled') {

@@ -23,11 +23,13 @@ async function proxyToBff(request: NextRequest): Promise<NextResponse> {
     bffUrl.searchParams.set(key, value);
   });
 
+  const forwardedFor = request.headers.get('x-forwarded-for');
   const bffResponse = await fetch(bffUrl.toString(), {
     method: request.method,
     headers: {
       'cookie': request.headers.get('cookie') ?? '',
       'content-type': request.headers.get('content-type') ?? 'application/json',
+      ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
     },
     body: request.method !== 'GET' && request.method !== 'HEAD'
       ? await request.text()

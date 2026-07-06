@@ -1,7 +1,7 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import { FileText, Calendar, Archive, Search } from 'lucide-react';
 import { searchAll } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import { SearchInput } from '@/components/search/SearchInput';
 import type { SearchResult } from '@snomed/types';
 
@@ -207,15 +207,14 @@ function ResultsGroup({
 export default async function SearchPage({ searchParams }: Props) {
   const { q } = await searchParams;
   const query = (q ?? '').trim();
-  const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
 
   let results: SearchResult[] = [];
   let error: string | null = null;
 
   if (query.length >= 2) {
     try {
-      results = await searchAll(query, cookie, 50);
+      results = await searchAll(query, fwd, 50);
     } catch (err) {
       error = (err as Error).message;
     }

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Folder } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSectionFiles, getUserFromHeaders, getSpaceReadFileIds } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import { DocumentList } from '@/components/documents/DocumentList';
 import type { SectionWithFiles } from '@/lib/api-client';
 
@@ -15,7 +16,7 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
   const { spaceId, sectionId } = await params;
   const { folderId } = await searchParams;
   const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
   const user = getUserFromHeaders(headerStore);
 
   let data: SectionWithFiles | null = null;
@@ -23,8 +24,8 @@ export default async function SectionDocumentsPage({ params, searchParams }: Pro
 
   let readFileIds: string[] = [];
   try {
-    data = await getSectionFiles(spaceId, sectionId, cookie, folderId);
-    readFileIds = await getSpaceReadFileIds(spaceId, cookie);
+    data = await getSectionFiles(spaceId, sectionId, fwd, folderId);
+    readFileIds = await getSpaceReadFileIds(spaceId, fwd);
   } catch (err) {
     error = (err as Error).message;
   }

@@ -32,6 +32,13 @@ async function handler(
     forwardHeaders['x-csrf-token'] = csrf;
   }
 
+  // Forward the real client IP (set by nginx) so BFF per-IP rate limits apply
+  // per user rather than collapsing onto this web container's IP.
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    forwardHeaders['x-forwarded-for'] = forwardedFor;
+  }
+
   const bffRes = await fetch(bffUrl, {
     method: request.method,
     headers: forwardHeaders,

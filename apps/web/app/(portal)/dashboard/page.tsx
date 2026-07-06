@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { FileText, FileSpreadsheet, FolderOpen, ChevronRight, Star } from 'lucide-react';
-import { headers } from 'next/headers';
 import { getUser } from '@/lib/auth';
 import { getUpcomingEvents, getAccessibleSpaces } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import { CalendarWidget } from '@/components/calendar/CalendarWidget';
 import { Greeting } from '@/components/Greeting';
 
@@ -30,13 +30,12 @@ function docIcon(mimeType: string) {
 // ---------------------------------------------------------------------------
 
 export default async function DashboardPage() {
-  const headersList = await headers();
-  const cookie = headersList.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
 
   const [user, events, spaces] = await Promise.all([
     getUser(),
-    getUpcomingEvents(cookie, 10, 60).catch(() => []),
-    getAccessibleSpaces(cookie).catch(() => []),
+    getUpcomingEvents(fwd, 10, 60).catch(() => []),
+    getAccessibleSpaces(fwd).catch(() => []),
   ]);
 
   const firstName = user?.given_name ?? user?.name?.split(' ')[0] ?? 'there';

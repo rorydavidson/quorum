@@ -75,7 +75,11 @@ export const authLimiter = rateLimit({
   max: envInt("RATE_LIMIT_AUTH", 30),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => isTest,
+  // /auth/session is the Next.js middleware's per-request session validation —
+  // it only reads the session cookie (nothing brute-forceable) and fires on
+  // every portal navigation, so it must not consume the strict auth budget.
+  // It remains covered by the global limiter. (req.path is mount-relative.)
+  skip: (req) => isTest || req.path === "/session",
   store: makeStore("rl:auth:"),
   message: { error: "Too many authentication attempts", code: "AUTH_RATE_LIMITED" },
 });

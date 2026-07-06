@@ -1,8 +1,8 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import { ChevronRight, Calendar, Clock, MapPin, Video } from 'lucide-react';
 import { Breadcrumb } from '@/components/layout/Breadcrumb';
 import { getSpaceFiles, getSpaceEvents } from '@/lib/api-client';
+import { bffGetHeaders } from '@/lib/bff';
 import type { CalendarEvent } from '@snomed/types';
 
 interface Props {
@@ -63,12 +63,11 @@ function groupEventsByMonth(events: CalendarEvent[]): { month: string; events: C
 
 export default async function SpaceCalendarPage({ params }: Props) {
   const { spaceId } = await params;
-  const headerStore = await headers();
-  const cookie = headerStore.get('cookie') ?? '';
+  const fwd = await bffGetHeaders();
 
   const [spaceResult, eventsResult] = await Promise.allSettled([
-    getSpaceFiles(spaceId, cookie),
-    getSpaceEvents(spaceId, cookie, 50, 365),
+    getSpaceFiles(spaceId, fwd),
+    getSpaceEvents(spaceId, fwd, 50, 365),
   ]);
 
   const space = spaceResult.status === 'fulfilled' ? spaceResult.value.space : null;

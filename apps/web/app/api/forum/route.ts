@@ -9,9 +9,11 @@ const BFF_URL = process.env.BFF_URL ?? 'http://localhost:3001';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const bffUrl = `${BFF_URL}/forum${request.nextUrl.search}`;
 
+  const forwardedFor = request.headers.get('x-forwarded-for');
   const bffRes = await fetch(bffUrl, {
     headers: {
       cookie: request.headers.get('cookie') ?? '',
+      ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
     },
   });
 
