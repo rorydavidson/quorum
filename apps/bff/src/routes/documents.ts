@@ -11,7 +11,7 @@ import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { uploadLimiter } from "../middleware/rateLimiter.js";
-import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs, markDocumentRead, unmarkDocumentRead, getUserReadFileIds, getDocumentReaders } from "../services/db.js";
+import { getSpaces, getSpaceById, getSectionById, createAuditLog, getCategoryConfigs, markDocumentRead, unmarkDocumentRead, getUserReadFileIds, getDocumentReaders, markDriveFileSeen } from "../services/db.js";
 import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFolderAncestry, verifyFileAncestry } from "../services/drive.js";
 import { isAdminUser, userCanAccessSpace, userCanUpload } from "../utils/rbac.js";
 import { notifyActivity } from "../services/notifications.js";
@@ -456,6 +456,9 @@ router.post(
           folderId: targetFolderId,
         }),
       });
+
+      // Mark seen so the Drive polling sweep doesn't re-notify this upload
+      void markDriveFileSeen(space.id, driveFile.id);
 
       // Notify subscribers (fire-and-forget; never blocks the response)
       void notifyActivity({

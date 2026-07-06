@@ -18,7 +18,10 @@ import {
   getCategoryConfigs,
   setCategoryConfigs,
   getUsageMetrics,
+  getAllSubscriptions,
+  markDriveFileSeen,
 } from "../services/db.js";
+import { sendMail, isMailerConfigured } from "../services/mailer.js";
 import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
 import { notifyActivity } from "../services/notifications.js";
 
@@ -421,6 +424,9 @@ router.post(
       details: JSON.stringify({ spaceId, fileName, officialRecordName: newName }),
     });
 
+    // Mark seen so the Drive polling sweep doesn't re-notify this copy
+    void markDriveFileSeen(space.id, copy.id);
+
     void notifyActivity({
       spaceId: space.id,
       spaceName: space.name,
@@ -536,6 +542,48 @@ function auditLogsToCsv(logs: Awaited<ReturnType<typeof getAuditLogs>>): string 
 router.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
   const metrics = await getUsageMetrics();
   res.json(metrics);
+});
+
+// ---------------------------------------------------------------------------
+// Notifications — admin visibility & delivery test
+// ---------------------------------------------------------------------------
+
+// GET /admin/subscriptions — who has clicked "Notify me", per space
+router.get("/subscriptions", async (_req: Request, res: Response): Promise<void> => {
+  const subscriptions = await getAllSubscriptions();
+  res.json({ subscriptions });
+});
+
+/**
+ * POST /admin/notifications/test
+ * Sends a test email to the calling admin's own address through the configured
+ * SMTP transport, so delivery can be verified end-to-end without needing a
+ * second account or real space activity. Reports mock mode explicitly.
+ */
+router.post("/notifications/test", async (req: Request, res: Response): Promise<void> => {
+  const user = req.session.user!;
+  if (!user.email) {
+    res.status(400).json({ error: "Your account has no email address", code: "NO_EMAIL" });
+    return;
+  }
+
+  const smtpConfigured = isMailerConfigured();
+  const sent = await sendMail({
+    to: user.email,
+    subject: "[Quorum] Test notification",
+    text:
+      "This is a test notification from the Quorum governance portal.\n\n" +
+      "If you are reading this, SMTP delivery is working. Subscribers of a space " +
+      "receive emails like this when a new document, Official Record, or meeting " +
+      "document is added to that space.",
+    html:
+      "<p>This is a <strong>test notification</strong> from the Quorum governance portal.</p>" +
+      "<p>If you are reading this, SMTP delivery is working. Subscribers of a space " +
+      "receive emails like this when a new document, Official Record, or meeting " +
+      "document is added to that space.</p>",
+  });
+
+  res.json({ sent, smtpConfigured, to: user.email });
 });
 
 router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => {

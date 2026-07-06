@@ -29,6 +29,15 @@
 
 ## Board-pack workflow
 
+- **Drive change watcher for notifications.**
+  ✅ *Polling sweep implemented:* a periodic BFF job (`DRIVE_SWEEP_INTERVAL`,
+  default 10 min) lists each space's Drive folders, diffs against a seen-file
+  table, and notifies subscribers about files added directly in Drive (silent
+  bootstrap; multi-instance safe; portal uploads pre-marked).
+  Remaining idea: *Drive push notifications (`files.watch`/changes API)* for
+  realtime detection — requires a publicly reachable HTTPS webhook, channel
+  renewal, and webhook auth; only worth it if the polling latency matters.
+
 - **"Notify me" / digest emails.** Alert members when a new agenda or Official
   Record lands in a space they belong to. The audit log + space→group mapping
   already provide everything needed to build this. Governance bodies live on

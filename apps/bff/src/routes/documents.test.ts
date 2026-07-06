@@ -18,6 +18,7 @@ vi.mock('../services/db.js', () => ({
   unmarkDocumentRead: vi.fn().mockResolvedValue(undefined),
   getUserReadFileIds: vi.fn().mockResolvedValue([]),
   getDocumentReaders: vi.fn().mockResolvedValue([]),
+  markDriveFileSeen: vi.fn().mockResolvedValue(true),
   default: {},
 }));
 
