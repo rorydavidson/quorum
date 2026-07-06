@@ -195,6 +195,31 @@ export async function runMigrations(): Promise<void> {
     logger.info("[db] Created notification_subscriptions table");
   }
 
+  // Drive polling sweep — tracks which Drive file ids have been seen per space
+  // so files added directly in Google Drive (bypassing the portal) can be
+  // detected and notified exactly once, across multiple BFF instances.
+  const hasSeenFiles = await db.schema.hasTable("drive_seen_files");
+  if (!hasSeenFiles) {
+    await db.schema.createTable("drive_seen_files", (t) => {
+      t.string("space_id").notNullable();
+      t.string("file_id").notNullable();
+      t.timestamp("first_seen").notNullable().defaultTo(db.fn.now());
+      t.primary(["space_id", "file_id"]);
+    });
+    logger.info("[db] Created drive_seen_files table");
+  }
+
+  // Per-space sweep bootstrap marker: the first sweep of a space seeds the
+  // seen-set silently (no notification storm about pre-existing files).
+  const hasSweepState = await db.schema.hasTable("drive_sweep_state");
+  if (!hasSweepState) {
+    await db.schema.createTable("drive_sweep_state", (t) => {
+      t.string("space_id").primary();
+      t.timestamp("bootstrapped_at").notNullable().defaultTo(db.fn.now());
+    });
+    logger.info("[db] Created drive_sweep_state table");
+  }
+
   // First-party usage analytics — aggregate only (no per-user page tracking).
   // Retire any earlier per-view table so no identifiable rows linger.
   await db.schema.dropTableIfExists("page_views");
@@ -898,6 +923,44 @@ export async function getUserSubscriptions(
     email: r.email,
     createdAt: r.created_at,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Drive sweep state
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks a Drive file as seen for a space. Returns true only when this call
+ * inserted the row — i.e. the file was genuinely unseen. The primary-key
+ * conflict makes this atomic across concurrent BFF instances, so at most one
+ * sweep "wins" a new file and sends the notification.
+ */
+export async function markDriveFileSeen(
+  spaceId: string,
+  fileId: string,
+): Promise<boolean> {
+  try {
+    await db("drive_seen_files").insert({ space_id: spaceId, file_id: fileId });
+    return true;
+  } catch {
+    // PK violation — already seen (possibly by another instance). Not an error.
+    return false;
+  }
+}
+
+/** True if the space's seen-set has been bootstrapped (first sweep done). */
+export async function isSweepBootstrapped(spaceId: string): Promise<boolean> {
+  const row = await db("drive_sweep_state").where({ space_id: spaceId }).first();
+  return !!row;
+}
+
+/** Records that a space's first sweep has seeded the seen-set (idempotent). */
+export async function markSweepBootstrapped(spaceId: string): Promise<void> {
+  try {
+    await db("drive_sweep_state").insert({ space_id: spaceId });
+  } catch {
+    /* already bootstrapped — fine */
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -505,7 +505,7 @@ Each space page has a **Notify me** button. When a member opts in, their account
 
 The admin **Notifications** tab shows who has subscribed to each space, and a **Send test email** button that emails your own address through the configured SMTP — the quickest way to verify delivery end-to-end (it reports explicitly when SMTP is unconfigured/mock). Every fan-out is logged (`"Notification fan-out"` with recipient/sent counts). Subscriptions are included in site **Export/Import**.
 
-> **Scope note:** notifications fire on portal actions (uploads, Official Records, meeting-doc links). Files added *directly in Google Drive* bypass the portal, so they don't trigger notifications — detecting those would need a Drive change watcher (see `docs/roadmap-ideas.md`).
+**Files added directly in Google Drive** (bypassing the portal) are also detected: a background **polling sweep** lists each space's Drive folders every `DRIVE_SWEEP_INTERVAL` seconds (default 600, `0` disables), diffs against a seen-file table, and notifies subscribers about anything new. The first sweep of a space seeds silently (no notification storm about pre-existing files), portal uploads are pre-marked so they're never double-notified, and the seen-table's primary key makes the sweep safe across multiple BFF instances. The sweep is automatically disabled in mock mode.
 
 ### Backup & Restore
 Admins can **Export** the entire portal configuration as a JSON file and **Import** it to restore or migrate settings.

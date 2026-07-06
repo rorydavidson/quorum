@@ -23,6 +23,7 @@ import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 import { logger, reqLog } from "./services/logger.js";
 import { httpLogger } from "./middleware/httpLogger.js";
+import { startDriveSweep, stopDriveSweep } from "./services/driveSweep.js";
 
 // ---------------------------------------------------------------------------
 // Environment validation — fail fast before binding any port
@@ -241,12 +242,16 @@ async function start(): Promise<void> {
     logger.info({ port: PORT }, `BFF running on http://localhost:${PORT}`);
   });
 
+  // Detect files added directly in Google Drive and notify subscribers.
+  startDriveSweep();
+
   // ---------------------------------------------------------------------------
   // Graceful shutdown — handles systemd SIGTERM and Ctrl+C (SIGINT)
   // ---------------------------------------------------------------------------
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received — draining connections");
+    stopDriveSweep();
     server.close(async () => {
       try {
         await closeRateLimiterRedis();

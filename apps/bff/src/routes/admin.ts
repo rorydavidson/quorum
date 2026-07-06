@@ -19,6 +19,7 @@ import {
   setCategoryConfigs,
   getUsageMetrics,
   getAllSubscriptions,
+  markDriveFileSeen,
 } from "../services/db.js";
 import { sendMail, isMailerConfigured } from "../services/mailer.js";
 import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
@@ -422,6 +423,9 @@ router.post(
       entityId: fileId,
       details: JSON.stringify({ spaceId, fileName, officialRecordName: newName }),
     });
+
+    // Mark seen so the Drive polling sweep doesn't re-notify this copy
+    void markDriveFileSeen(space.id, copy.id);
 
     void notifyActivity({
       spaceId: space.id,

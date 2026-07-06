@@ -55,6 +55,11 @@ function isMockMode(): boolean {
   );
 }
 
+/** True when no Service Account is configured and Drive serves mock data. */
+export function isDriveMockMode(): boolean {
+  return isMockMode();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

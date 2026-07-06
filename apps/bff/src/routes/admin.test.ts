@@ -22,6 +22,7 @@ vi.mock('../services/db.js', () => ({
   getAuditLogs: vi.fn().mockResolvedValue([]),
   getUsageMetrics: vi.fn(),
   getAllSubscriptions: vi.fn().mockResolvedValue([]),
+  markDriveFileSeen: vi.fn().mockResolvedValue(true),
   default: {},
 }));
 
