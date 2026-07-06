@@ -931,21 +931,22 @@ export async function getUserSubscriptions(
 
 /**
  * Marks a Drive file as seen for a space. Returns true only when this call
- * inserted the row — i.e. the file was genuinely unseen. The primary-key
- * conflict makes this atomic across concurrent BFF instances, so at most one
- * sweep "wins" a new file and sends the notification.
+ * inserted the row — i.e. the file was genuinely unseen. Uses
+ * INSERT ... ON CONFLICT DO NOTHING RETURNING so the duplicate case is a
+ * non-event (no constraint-violation ERROR in the Postgres server log) while
+ * remaining atomic across concurrent BFF instances: RETURNING yields a row
+ * only for the instance whose insert actually landed.
  */
 export async function markDriveFileSeen(
   spaceId: string,
   fileId: string,
 ): Promise<boolean> {
-  try {
-    await db("drive_seen_files").insert({ space_id: spaceId, file_id: fileId });
-    return true;
-  } catch {
-    // PK violation — already seen (possibly by another instance). Not an error.
-    return false;
-  }
+  const inserted = await db("drive_seen_files")
+    .insert({ space_id: spaceId, file_id: fileId })
+    .onConflict(["space_id", "file_id"])
+    .ignore()
+    .returning("file_id");
+  return inserted.length > 0;
 }
 
 /** True if the space's seen-set has been bootstrapped (first sweep done). */
@@ -956,11 +957,10 @@ export async function isSweepBootstrapped(spaceId: string): Promise<boolean> {
 
 /** Records that a space's first sweep has seeded the seen-set (idempotent). */
 export async function markSweepBootstrapped(spaceId: string): Promise<void> {
-  try {
-    await db("drive_sweep_state").insert({ space_id: spaceId });
-  } catch {
-    /* already bootstrapped — fine */
-  }
+  await db("drive_sweep_state")
+    .insert({ space_id: spaceId })
+    .onConflict("space_id")
+    .ignore();
 }
 
 // ---------------------------------------------------------------------------
