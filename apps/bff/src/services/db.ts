@@ -10,6 +10,7 @@ import {
   Activity,
   ActivityType,
   NotificationSubscription,
+  SpaceSubscriber,
   UsageMetrics,
   UsageWindow,
   DailyUsage,
@@ -492,6 +493,7 @@ export interface SiteBackup {
   spaces: SpaceConfig[];
   eventMetadata: EventMetadata[];
   categoryConfigs?: HierarchyCategoryConfig[];
+  subscriptions?: SpaceSubscriber[];
 }
 
 export async function getBackup(): Promise<SiteBackup> {
@@ -499,6 +501,7 @@ export async function getBackup(): Promise<SiteBackup> {
   const eventMetadataRows = await db<EventMetadataRow>("event_metadata");
   const eventMetadata = eventMetadataRows.map(rowToEventMetadata);
   const categoryConfigs = await getCategoryConfigs();
+  const subscriptions = await getAllSubscriptions();
 
   return {
     version: 1,
@@ -506,6 +509,7 @@ export async function getBackup(): Promise<SiteBackup> {
     spaces,
     eventMetadata,
     categoryConfigs,
+    subscriptions,
   };
 }
 
@@ -566,6 +570,22 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         await trx("hierarchy_category_configs").insert({
           name: config.name,
           sort_order: config.sortOrder,
+        });
+      }
+    }
+
+    // 5. Restore notification subscriptions (only for spaces in this backup,
+    // to respect the FK-free but logically-linked space ids)
+    await trx("notification_subscriptions").delete();
+    if (backup.subscriptions?.length) {
+      const spaceIds = new Set(backup.spaces.map((s) => s.id));
+      for (const sub of backup.subscriptions) {
+        if (!spaceIds.has(sub.spaceId)) continue;
+        await trx("notification_subscriptions").insert({
+          user_id: sub.userId,
+          space_id: sub.spaceId,
+          email: sub.email,
+          created_at: sub.createdAt,
         });
       }
     }
@@ -852,6 +872,18 @@ export async function unsubscribeFromSpace(
   await db("notification_subscriptions")
     .where({ user_id: userId, space_id: spaceId })
     .delete();
+}
+
+/** All subscriptions across all spaces — admin visibility + backup export. */
+export async function getAllSubscriptions(): Promise<SpaceSubscriber[]> {
+  const rows = await db("notification_subscriptions")
+    .orderBy(["space_id", "created_at"]);
+  return rows.map((r) => ({
+    userId: r.user_id,
+    spaceId: r.space_id,
+    email: r.email,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
 }
 
 /** The space IDs a user is subscribed to. */

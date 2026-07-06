@@ -19,6 +19,11 @@ function isConfigured(): boolean {
   return !!process.env.SMTP_HOST;
 }
 
+/** True when real SMTP delivery is configured (false = mock/log mode). */
+export function isMailerConfigured(): boolean {
+  return isConfigured();
+}
+
 function transport(): Transporter {
   if (_transport) return _transport;
   const port = parseInt(process.env.SMTP_PORT ?? "587", 10);

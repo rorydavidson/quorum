@@ -21,6 +21,7 @@ vi.mock('../services/db.js', () => ({
   createAuditLog: vi.fn().mockResolvedValue(undefined),
   getAuditLogs: vi.fn().mockResolvedValue([]),
   getUsageMetrics: vi.fn(),
+  getAllSubscriptions: vi.fn().mockResolvedValue([]),
   default: {},
 }));
 
@@ -34,8 +35,14 @@ vi.mock('../services/notifications.js', () => ({
   notifyActivity: vi.fn().mockResolvedValue(0),
 }));
 
+vi.mock('../services/mailer.js', () => ({
+  sendMail: vi.fn().mockResolvedValue(true),
+  isMailerConfigured: vi.fn().mockReturnValue(true),
+}));
+
 import * as db from '../services/db.js';
 import * as drive from '../services/drive.js';
+import * as mailer from '../services/mailer.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -542,6 +549,60 @@ describe('Admin routes — usage metrics', () => {
     const res = await request(app).get('/admin/metrics');
     expect(res.status).toBe(403);
     expect(db.getUsageMetrics).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notifications — subscriptions listing & test email
+// ---------------------------------------------------------------------------
+
+describe('Admin routes — notifications', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(mailer.sendMail).mockResolvedValue(true);
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(true);
+    vi.mocked(db.getAllSubscriptions).mockResolvedValue([
+      { userId: 'u1', spaceId: 'board', email: 'member@example.com', createdAt: '2026-07-01 09:00:00' },
+    ]);
+  });
+
+  it('lists all subscriptions for an admin', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/admin/subscriptions');
+    expect(res.status).toBe(200);
+    expect(res.body.subscriptions).toHaveLength(1);
+    expect(res.body.subscriptions[0].email).toBe('member@example.com');
+  });
+
+  it('subscriptions listing is admin-only', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).get('/admin/subscriptions');
+    expect(res.status).toBe(403);
+  });
+
+  it('sends a test email to the calling admin', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/notifications/test');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ sent: true, smtpConfigured: true, to: adminUser.email });
+    expect(mailer.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: adminUser.email, subject: expect.stringContaining('Test notification') }),
+    );
+  });
+
+  it('reports mock mode when SMTP is not configured', async () => {
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(false);
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/notifications/test');
+    expect(res.status).toBe(200);
+    expect(res.body.smtpConfigured).toBe(false);
+  });
+
+  it('test email is admin-only', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).post('/admin/notifications/test');
+    expect(res.status).toBe(403);
+    expect(mailer.sendMail).not.toHaveBeenCalled();
   });
 });
 

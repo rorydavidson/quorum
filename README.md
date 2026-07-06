@@ -501,7 +501,11 @@ The data is **aggregate only**: it counts views and active users but never recor
 On any document list, members can mark a document as **read** (the toggle in the *Read* column). Admins and secretariat see a **Read by** control per document showing who has read it and when — useful for confirming a board is prepared ahead of a meeting.
 
 ### Notifications ("Notify me")
-Each space page has a **Notify me** button. When a member opts in, their account email is captured and they are emailed whenever a new document, Official Record, or linked meeting document lands in that space. Delivery requires SMTP to be configured (see `SMTP_*` in the environment variables); without it the mailer logs instead of sending. Agenda-item edits are intentionally *not* notified to avoid noise.
+Each space page has a **Notify me** button. When a member opts in, their account email is captured and they are emailed whenever a new document, Official Record, or linked meeting document lands in that space. Delivery requires SMTP to be configured (see `SMTP_*` in the environment variables); without it the mailer logs instead of sending. Agenda-item edits are intentionally *not* notified to avoid noise. The member who triggered the activity is excluded from the fan-out (you don't get emailed about your own upload).
+
+The admin **Notifications** tab shows who has subscribed to each space, and a **Send test email** button that emails your own address through the configured SMTP — the quickest way to verify delivery end-to-end (it reports explicitly when SMTP is unconfigured/mock). Every fan-out is logged (`"Notification fan-out"` with recipient/sent counts). Subscriptions are included in site **Export/Import**.
+
+> **Scope note:** notifications fire on portal actions (uploads, Official Records, meeting-doc links). Files added *directly in Google Drive* bypass the portal, so they don't trigger notifications — detecting those would need a Drive change watcher (see `docs/roadmap-ideas.md`).
 
 ### Backup & Restore
 Admins can **Export** the entire portal configuration as a JSON file and **Import** it to restore or migrate settings.

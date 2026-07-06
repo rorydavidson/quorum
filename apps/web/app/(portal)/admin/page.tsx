@@ -28,7 +28,7 @@ export default async function AdminPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-snomed-grey">Admin</h1>
         <p className="mt-1 text-sm text-snomed-grey/60">

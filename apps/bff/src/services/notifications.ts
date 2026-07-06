@@ -35,7 +35,13 @@ export async function notifyActivity(input: NotifyInput): Promise<number> {
 
     const subscribers = await getSpaceSubscribers(input.spaceId);
     const recipients = subscribers.filter((s) => s.userId !== input.actorUserId);
-    if (recipients.length === 0) return 0;
+    if (recipients.length === 0) {
+      logger.info(
+        { spaceId: input.spaceId, type: input.type, subscribers: subscribers.length },
+        "Notification fan-out skipped — no recipients (actor excluded)",
+      );
+      return 0;
+    }
 
     const link = input.link ? `${FRONTEND_ORIGIN}${input.link}` : FRONTEND_ORIGIN;
     const subject = `[${input.spaceName}] ${SUBJECT_PREFIX[input.type]}`;
@@ -57,6 +63,10 @@ export async function notifyActivity(input: NotifyInput): Promise<number> {
       recipients.map((r) => sendMail({ to: r.email, subject, text, html })),
     );
     sent = results.filter(Boolean).length;
+    logger.info(
+      { spaceId: input.spaceId, type: input.type, recipients: recipients.length, sent },
+      "Notification fan-out",
+    );
   } catch (err) {
     logger.error({ err }, "notifyActivity failed");
   }

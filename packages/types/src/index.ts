@@ -160,6 +160,14 @@ export interface NotificationSubscription {
   createdAt: string;
 }
 
+/** Admin view of a subscription — who has clicked "Notify me" on which space. */
+export interface SpaceSubscriber {
+  userId: string;
+  spaceId: string;
+  email: string;
+  createdAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Usage metrics / analytics
 // ---------------------------------------------------------------------------

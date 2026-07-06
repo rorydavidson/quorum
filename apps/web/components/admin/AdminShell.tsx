@@ -18,8 +18,10 @@ import {
   Upload,
   Info,
   RotateCcw,
+  BellRing,
+  Send,
 } from 'lucide-react';
-import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig } from '@snomed/types';
+import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig, SpaceSubscriber } from '@snomed/types';
 import { csrfFetch } from '@/lib/csrf';
 import { MetricsPanel } from './MetricsPanel';
 
@@ -27,7 +29,7 @@ import { MetricsPanel } from './MetricsPanel';
 // Types
 // ---------------------------------------------------------------------------
 
-type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order' | 'analytics';
+type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order' | 'analytics' | 'notifications';
 
 // Known audit actions/entity types for the filter dropdowns (stable enums in the BFF).
 const AUDIT_ACTIONS = [
@@ -191,6 +193,10 @@ export function AdminShell({ initialSpaces }: Props) {
   const [savingCategories, setSavingCategories] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
 
+  const [subscribers, setSubscribers] = useState<SpaceSubscriber[]>([]);
+  const [loadingSubscribers, setLoadingSubscribers] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
@@ -226,6 +232,43 @@ export function AdminShell({ initialSpaces }: Props) {
       setLoadingLogs(false);
     }
   }, [auditFilters, auditOffset, showToast]);
+
+  const fetchSubscribers = useCallback(async () => {
+    setLoadingSubscribers(true);
+    try {
+      const res = await fetch('/api/admin/subscriptions');
+      if (res.ok) {
+        const data = await res.json() as { subscriptions: SpaceSubscriber[] };
+        setSubscribers(data.subscriptions);
+      } else {
+        showToast('Failed to load subscriptions.', 'error');
+      }
+    } catch {
+      showToast('Failed to load subscriptions.', 'error');
+    } finally {
+      setLoadingSubscribers(false);
+    }
+  }, [showToast]);
+
+  const sendTestEmail = useCallback(async () => {
+    setSendingTest(true);
+    try {
+      const res = await csrfFetch('/api/admin/notifications/test', { method: 'POST' });
+      const data = await res.json() as { sent?: boolean; smtpConfigured?: boolean; to?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Test failed');
+      if (!data.smtpConfigured) {
+        showToast('SMTP is not configured — the server logged the email instead of sending it (mock mode).', 'error');
+      } else if (data.sent) {
+        showToast(`Test email sent to ${data.to}. Check your inbox (and spam).`, 'success');
+      } else {
+        showToast('SMTP send failed — check the server logs for the SMTP error.', 'error');
+      }
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setSendingTest(false);
+    }
+  }, [showToast]);
 
   const loadCategoryConfigs = useCallback(async () => {
     setLoadingCategories(true);
@@ -749,40 +792,26 @@ export function AdminShell({ initialSpaces }: Props) {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={() => setView('list')}
-            className={`pb-2 border-b-2 transition-all ${view === 'list' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
-          >
-            <h2 className="text-base font-semibold">Spaces</h2>
-          </button>
-          <button
-            onClick={() => {
-              setView('category-order');
-              loadCategoryConfigs();
-            }}
-            className={`pb-2 border-b-2 transition-all ${view === 'category-order' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
-          >
-            <h2 className="text-base font-semibold">Category Order</h2>
-          </button>
-          <button
-            onClick={() => {
-              setView('audit-log');
-              fetchAuditLogs();
-            }}
-            className={`pb-2 border-b-2 transition-all ${view === 'audit-log' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
-          >
-            <h2 className="text-base font-semibold">Audit Log</h2>
-          </button>
-          <button
-            onClick={() => setView('analytics')}
-            className={`pb-2 border-b-2 transition-all ${view === 'analytics' ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
-          >
-            <h2 className="text-base font-semibold">Analytics</h2>
-          </button>
+      {/* Tab bar + actions — wraps on narrow widths so nothing overlaps */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          {([
+            { key: 'list', label: 'Spaces', onOpen: () => setView('list') },
+            { key: 'category-order', label: 'Category Order', onOpen: () => { setView('category-order'); loadCategoryConfigs(); } },
+            { key: 'audit-log', label: 'Audit Log', onOpen: () => { setView('audit-log'); fetchAuditLogs(); } },
+            { key: 'analytics', label: 'Analytics', onOpen: () => setView('analytics') },
+            { key: 'notifications', label: 'Notifications', onOpen: () => { setView('notifications'); fetchSubscribers(); } },
+          ] as const).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={tab.onOpen}
+              className={`pb-2 border-b-2 transition-all ${view === tab.key ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
+            >
+              <h2 className="text-base font-semibold whitespace-nowrap">{tab.label}</h2>
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {view === 'list' && (
             <>
               <button
@@ -854,12 +883,66 @@ export function AdminShell({ initialSpaces }: Props) {
               </button>
             </div>
           )}
+          {view === 'notifications' && (
+            <button
+              onClick={sendTestEmail}
+              disabled={sendingTest}
+              title="Email a test notification to your own address to verify SMTP delivery"
+              className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-blue-dark transition-colors min-h-[44px] disabled:opacity-50"
+            >
+              <Send size={16} />
+              {sendingTest ? 'Sending…' : 'Send test email'}
+            </button>
+          )}
         </div>
       </div>
 
       {
         view === 'analytics' ? (
           <MetricsPanel spaceNames={Object.fromEntries(spaces.map((s) => [s.id, s.name]))} />
+        ) : view === 'notifications' ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-snomed-border bg-gray-50 flex items-center gap-2">
+                <BellRing size={15} className="text-snomed-blue" aria-hidden="true" />
+                <p className="text-sm text-snomed-grey/60">
+                  Members who clicked <strong>Notify me</strong> — they are emailed when a new document,
+                  Official Record, or meeting document lands in the space. Subscriptions are included in
+                  site Export/Import.
+                </p>
+              </div>
+              {loadingSubscribers ? (
+                <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">Loading subscriptions…</div>
+              ) : subscribers.length === 0 ? (
+                <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">
+                  No one has subscribed to notifications yet.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-snomed-border text-left text-[10px] uppercase tracking-wide text-snomed-grey/50">
+                      <th className="px-5 py-2 font-semibold">Space</th>
+                      <th className="px-5 py-2 font-semibold">Email</th>
+                      <th className="px-5 py-2 font-semibold text-right">Subscribed</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-snomed-border">
+                    {subscribers.map((sub) => (
+                      <tr key={`${sub.spaceId}:${sub.userId}`} className="hover:bg-gray-50">
+                        <td className="px-5 py-2.5 text-snomed-grey">
+                          {spaces.find((s) => s.id === sub.spaceId)?.name ?? sub.spaceId}
+                        </td>
+                        <td className="px-5 py-2.5 text-snomed-grey/80">{sub.email}</td>
+                        <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/50">
+                          {new Date(sub.createdAt.includes('T') ? sub.createdAt : sub.createdAt.replace(' ', 'T') + 'Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         ) : view === 'category-order' ? (
           <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-snomed-border bg-gray-50">
