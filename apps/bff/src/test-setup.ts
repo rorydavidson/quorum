@@ -4,10 +4,12 @@
  * pick up safe test values instead of production config.
  */
 
-// Use SQLite in-memory database for all tests.
+// Use SQLite in-memory database for all tests by default.
 // db.ts does: process.env.DATABASE_URL?.replace('file:', '') ?? './dev.db'
 // ':memory:' → SQLite creates a temporary in-memory database.
-process.env.DATABASE_URL = ':memory:';
+// CI also runs the DB-layer tests against a real PostgreSQL by setting
+// TEST_DATABASE_URL, since returning/onConflict/timestamp behaviour differs.
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ':memory:';
 
 // A valid 32+ char secret so any code that checks SESSION_SECRET won't exit.
 process.env.SESSION_SECRET =

@@ -453,3 +453,63 @@ describe('Documents routes — read receipts', () => {
     expect(res.body.readers[0].userName).toBe('Board Member');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Folder ancestry — a caller-supplied folderId must sit inside the space
+// ---------------------------------------------------------------------------
+
+describe('GET /documents/:spaceId?folderId= — folder ancestry', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(boardSpace);
+    vi.mocked(drive.listFiles).mockResolvedValue([mockFile]);
+  });
+
+  it('lists a sub-folder that is inside the space', async () => {
+    vi.mocked(drive.verifyFolderAncestry).mockResolvedValue(true);
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board?folderId=sub-folder-1');
+
+    expect(res.status).toBe(200);
+    expect(drive.verifyFolderAncestry).toHaveBeenCalledWith('sub-folder-1', 'folder-1');
+    expect(drive.listFiles).toHaveBeenCalledWith('sub-folder-1');
+  });
+
+  it('returns 403 FOLDER_OUTSIDE_SPACE and never lists a folder outside the space', async () => {
+    vi.mocked(drive.verifyFolderAncestry).mockResolvedValue(false);
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board?folderId=someone-elses-folder');
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FOLDER_OUTSIDE_SPACE');
+    expect(drive.listFiles).not.toHaveBeenCalled();
+  });
+
+  it('applies the ancestry check to admins too', async () => {
+    vi.mocked(drive.verifyFolderAncestry).mockResolvedValue(false);
+    const app = await createApp(adminUser);
+    const res = await request(app).get('/documents/board?folderId=someone-elses-folder');
+
+    expect(res.status).toBe(403);
+    expect(drive.listFiles).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 INVALID_FOLDER_ID for a malformed id before touching Drive', async () => {
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board?folderId=' + encodeURIComponent("not a drive id'--"));
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_FOLDER_ID');
+    expect(drive.verifyFolderAncestry).not.toHaveBeenCalled();
+    expect(drive.listFiles).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 DRIVE_ERROR if the ancestry lookup itself fails', async () => {
+    vi.mocked(drive.verifyFolderAncestry).mockRejectedValue(new Error('Drive down'));
+    const app = await createApp(boardUser);
+    const res = await request(app).get('/documents/board?folderId=sub-folder-1');
+
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('DRIVE_ERROR');
+  });
+});

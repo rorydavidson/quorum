@@ -60,6 +60,17 @@ export function isDriveMockMode(): boolean {
   return isMockMode();
 }
 
+/**
+ * Drops every in-process Drive cache (listings, parent links, ancestry
+ * verdicts). Used by tests; safe to call at runtime if a cache must be
+ * flushed after a manual Drive reorganisation.
+ */
+export function clearDriveCaches(): void {
+  parentCache.clear();
+  listFilesCache.clear();
+  ancestryCache.clear();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -8,15 +8,26 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import db, {
+  createActivity,
+  createAuditLog,
   deleteSection,
   deleteSpace,
+  getAllSubscriptions,
+  getAuditLogs,
   getEventMetadata,
   getSectionById,
   getSpaceById,
   getSpaces,
+  getSpaceSubscribers,
   getSpacesByGroups,
+  getUserSubscriptions,
+  isSweepBootstrapped,
+  markDriveFileSeen,
+  markSweepBootstrapped,
   restoreBackup,
   runMigrations,
+  subscribeToSpace,
+  unsubscribeFromSpace,
   upsertEventMetadata,
   upsertSection,
   upsertSpace,
@@ -60,6 +71,11 @@ beforeEach(async () => {
   await db("event_metadata").delete();
   await db("space_sections").delete();
   await db("spaces").delete();
+  await db("drive_seen_files").delete();
+  await db("drive_sweep_state").delete();
+  await db("notification_subscriptions").delete();
+  await db("activities").delete();
+  await db("audit_logs").delete();
 });
 
 // ---------------------------------------------------------------------------
@@ -536,5 +552,121 @@ describe("restoreBackup()", () => {
     const spaces = await getSpaces();
     expect(spaces).toHaveLength(1);
     expect(spaces[0].uploadGroups).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The functions below use RETURNING / ON CONFLICT / timestamps, which behave
+// differently on SQLite and PostgreSQL. CI runs this file against both.
+// ---------------------------------------------------------------------------
+
+describe("drive sweep state", () => {
+  it("markDriveFileSeen() reports true only for the first sighting", async () => {
+    expect(await markDriveFileSeen("board", "f1")).toBe(true);
+    expect(await markDriveFileSeen("board", "f1")).toBe(false);
+    // Same file id in another space is a separate sighting.
+    expect(await markDriveFileSeen("finance", "f1")).toBe(true);
+  });
+
+  it("markSweepBootstrapped() is idempotent and visible via isSweepBootstrapped()", async () => {
+    expect(await isSweepBootstrapped("board")).toBe(false);
+    await markSweepBootstrapped("board");
+    await markSweepBootstrapped("board");
+    expect(await isSweepBootstrapped("board")).toBe(true);
+    expect(await isSweepBootstrapped("finance")).toBe(false);
+  });
+});
+
+describe("notification subscriptions", () => {
+  it("subscribe / list / unsubscribe round-trips", async () => {
+    await subscribeToSpace("u1", "board", "u1@example.com");
+    await subscribeToSpace("u2", "board", "u2@example.com");
+
+    const subs = await getSpaceSubscribers("board");
+    expect(subs.map((s) => s.email).sort()).toEqual(["u1@example.com", "u2@example.com"]);
+
+    await unsubscribeFromSpace("u1", "board");
+    expect((await getSpaceSubscribers("board")).map((s) => s.userId)).toEqual(["u2"]);
+  });
+
+  it("re-subscribing refreshes the stored email without duplicating the row", async () => {
+    await subscribeToSpace("u1", "board", "old@example.com");
+    await subscribeToSpace("u1", "board", "new@example.com");
+
+    const subs = await getSpaceSubscribers("board");
+    expect(subs).toEqual([{ userId: "u1", email: "new@example.com" }]);
+  });
+
+  it("getAllSubscriptions() returns createdAt as a parseable string", async () => {
+    await subscribeToSpace("u1", "board", "u1@example.com");
+    const [sub] = await getAllSubscriptions();
+
+    expect(sub).toMatchObject({ userId: "u1", spaceId: "board", email: "u1@example.com" });
+    expect(typeof sub.createdAt).toBe("string");
+    expect(Number.isNaN(new Date(sub.createdAt.replace(" ", "T")).getTime())).toBe(false);
+  });
+
+  it("getUserSubscriptions() lists only the given user's spaces", async () => {
+    await subscribeToSpace("u1", "board", "u1@example.com");
+    await subscribeToSpace("u1", "finance", "u1@example.com");
+    await subscribeToSpace("u2", "board", "u2@example.com");
+
+    const mine = await getUserSubscriptions("u1");
+    expect(mine.map((s) => s.spaceId).sort()).toEqual(["board", "finance"]);
+  });
+});
+
+describe("createActivity()", () => {
+  it("returns the generated id and a created timestamp", async () => {
+    const activity = await createActivity({
+      spaceId: "board",
+      type: "NEW_DOCUMENT",
+      title: "Minutes.pdf",
+      link: "/spaces/board/documents",
+      entityId: "f1",
+      actorName: "Rory",
+    });
+
+    expect(typeof activity.id).toBe("number");
+    expect(activity.id).toBeGreaterThan(0);
+    expect(activity).toMatchObject({
+      spaceId: "board",
+      type: "NEW_DOCUMENT",
+      title: "Minutes.pdf",
+      entityId: "f1",
+      actorName: "Rory",
+    });
+    expect(activity.createdAt).toBeTruthy();
+
+    const rows = await db("activities");
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("audit logs", () => {
+  const base = { userId: "u1", userName: "Rory", entityType: "SPACE", entityId: "board" };
+
+  it("stores entries and filters by action", async () => {
+    await createAuditLog({ ...base, action: "CREATE_SPACE" });
+    await createAuditLog({ ...base, action: "DELETE_SPACE", details: JSON.stringify({ id: "board" }) });
+
+    const all = await getAuditLogs();
+    expect(all).toHaveLength(2);
+    // SQLite returns a string, pg a Date; either way the row carries a timestamp.
+    all.forEach((l) => expect(l.timestamp).toBeTruthy());
+
+    const deletes = await getAuditLogs({ action: "DELETE_SPACE" });
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].details).toBe(JSON.stringify({ id: "board" }));
+  });
+
+  it("filters by a case-insensitive user name fragment and honours limit/offset", async () => {
+    await createAuditLog({ ...base, action: "CREATE_SPACE", userName: "Rory Davidson" });
+    await createAuditLog({ ...base, action: "CREATE_SPACE", userName: "Someone Else" });
+    await createAuditLog({ ...base, action: "CREATE_SPACE", userName: "rory again" });
+
+    expect(await getAuditLogs({ user: "RORY" })).toHaveLength(2);
+    expect(await getAuditLogs({ limit: 2 })).toHaveLength(2);
+    expect(await getAuditLogs({ limit: 2, offset: 2 })).toHaveLength(1);
   });
 });
