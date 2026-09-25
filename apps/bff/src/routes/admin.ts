@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
+import { asyncHandler } from "../middleware/asyncHandler.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import {
@@ -134,10 +135,10 @@ router.use(requireAdmin);
 // Spaces — GET /admin/spaces
 // ---------------------------------------------------------------------------
 
-router.get("/spaces", async (_req: Request, res: Response): Promise<void> => {
+router.get("/spaces", asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const spaces = await getSpaces();
   res.json(spaces);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Spaces — GET /admin/spaces/:id
@@ -145,21 +146,21 @@ router.get("/spaces", async (_req: Request, res: Response): Promise<void> => {
 
 router.get(
   "/spaces/:id",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const space = await getSpaceById(String(req.params.id));
     if (!space) {
       res.status(404).json({ error: "Space not found", code: "SPACE_NOT_FOUND" });
       return;
     }
     res.json(space);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
 // Spaces — POST /admin/spaces  (create)
 // ---------------------------------------------------------------------------
 
-router.post("/spaces", async (req: Request, res: Response): Promise<void> => {
+router.post("/spaces", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const parsed = SpaceWriteSchema.required({ id: true }).safeParse(req.body);
   if (!parsed.success) { zodError(res, parsed.error); return; }
   const body = parsed.data;
@@ -194,7 +195,7 @@ router.post("/spaces", async (req: Request, res: Response): Promise<void> => {
   });
 
   res.status(201).json(space);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Spaces — PUT /admin/spaces/:id  (update)
@@ -202,7 +203,7 @@ router.post("/spaces", async (req: Request, res: Response): Promise<void> => {
 
 router.put(
   "/spaces/:id",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const parsed = SpaceWriteSchema.safeParse(req.body);
     if (!parsed.success) { zodError(res, parsed.error); return; }
@@ -232,7 +233,7 @@ router.put(
     });
 
     res.json(space);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -241,7 +242,7 @@ router.put(
 
 router.delete(
   "/spaces/:id",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const existing = await getSpaceById(id);
     if (!existing) {
@@ -261,7 +262,7 @@ router.delete(
     });
 
     res.status(204).end();
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -270,7 +271,7 @@ router.delete(
 
 router.get(
   "/spaces/:spaceId/sections/:sectionId",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const section = await getSectionById(
       String(req.params.spaceId),
       String(req.params.sectionId),
@@ -280,7 +281,7 @@ router.get(
       return;
     }
     res.json(section);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -289,7 +290,7 @@ router.get(
 
 router.post(
   "/spaces/:spaceId/sections",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const spaceId = String(req.params.spaceId);
     const space = await getSpaceById(spaceId);
     if (!space) {
@@ -328,7 +329,7 @@ router.post(
     });
 
     res.status(201).json(section);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -337,7 +338,7 @@ router.post(
 
 router.put(
   "/spaces/:spaceId/sections/:sectionId",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const spaceId = String(req.params.spaceId);
     const sectionId = String(req.params.sectionId);
 
@@ -369,7 +370,7 @@ router.put(
     });
 
     res.json(section);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -378,7 +379,7 @@ router.put(
 
 router.delete(
   "/spaces/:spaceId/sections/:sectionId",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const spaceId = String(req.params.spaceId);
     const sectionId = String(req.params.sectionId);
 
@@ -401,7 +402,7 @@ router.delete(
     });
 
     res.status(204).end();
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -423,7 +424,7 @@ const SnapshotBodySchema = z.object({
  */
 router.post(
   "/spaces/:spaceId/files/:fileId/snapshot",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const spaceId = String(req.params.spaceId);
     const fileId = String(req.params.fileId);
 
@@ -491,21 +492,21 @@ router.post(
     });
 
     res.status(201).json(copy);
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------
 // Backup & Import
 // ---------------------------------------------------------------------------
 
-router.get("/backup", async (_req: Request, res: Response): Promise<void> => {
+router.get("/backup", asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const backup = await getBackup();
   res.header("Content-Type", "application/json");
   res.header("Content-Disposition", `attachment; filename="snomed-spaces-backup-${new Date().toISOString().split('T')[0]}.json"`);
   res.send(JSON.stringify(backup, null, 2));
-});
+}));
 
-router.post("/import", async (req: Request, res: Response): Promise<void> => {
+router.post("/import", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const parsed = BackupSchema.safeParse(req.body);
   if (!parsed.success) { zodError(res, parsed.error); return; }
 
@@ -527,9 +528,9 @@ router.post("/import", async (req: Request, res: Response): Promise<void> => {
   });
 
   res.json({ message: "Backup restored successfully" });
-});
+}));
 
-router.post("/reset", async (req: Request, res: Response): Promise<void> => {
+router.post("/reset", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   try {
     await resetSite();
 
@@ -546,7 +547,7 @@ router.post("/reset", async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     res.status(500).json({ error: "Reset failed", code: "RESET_FAILED" });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Audit Logs
@@ -591,20 +592,20 @@ function auditLogsToCsv(logs: Awaited<ReturnType<typeof getAuditLogs>>): string 
 // Usage metrics / analytics
 // ---------------------------------------------------------------------------
 
-router.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
+router.get("/metrics", asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const metrics = await getUsageMetrics();
   res.json(metrics);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Notifications — admin visibility & delivery test
 // ---------------------------------------------------------------------------
 
 // GET /admin/subscriptions — who has clicked "Notify me", per space
-router.get("/subscriptions", async (_req: Request, res: Response): Promise<void> => {
+router.get("/subscriptions", asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const subscriptions = await getAllSubscriptions();
   res.json({ subscriptions });
-});
+}));
 
 /**
  * POST /admin/notifications/test
@@ -612,7 +613,7 @@ router.get("/subscriptions", async (_req: Request, res: Response): Promise<void>
  * SMTP transport, so delivery can be verified end-to-end without needing a
  * second account or real space activity. Reports mock mode explicitly.
  */
-router.post("/notifications/test", async (req: Request, res: Response): Promise<void> => {
+router.post("/notifications/test", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const user = req.session.user!;
   if (!user.email) {
     res.status(400).json({ error: "Your account has no email address", code: "NO_EMAIL" });
@@ -636,16 +637,16 @@ router.post("/notifications/test", async (req: Request, res: Response): Promise<
   });
 
   res.json({ sent, smtpConfigured, to: user.email });
-});
+}));
 
-router.get("/audit-logs", async (req: Request, res: Response): Promise<void> => {
+router.get("/audit-logs", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const parsed = AuditLogQuerySchema.safeParse(cleanQuery(req.query));
   if (!parsed.success) { zodError(res, parsed.error); return; }
   const logs = await getAuditLogs(parsed.data);
   res.json(logs);
-});
+}));
 
-router.get("/audit-logs/export", async (req: Request, res: Response): Promise<void> => {
+router.get("/audit-logs/export", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const parsed = AuditLogQuerySchema.safeParse(cleanQuery(req.query));
   if (!parsed.success) { zodError(res, parsed.error); return; }
 
@@ -658,7 +659,7 @@ router.get("/audit-logs/export", async (req: Request, res: Response): Promise<vo
     `attachment; filename="quorum-audit-log-${date}.csv"`,
   );
   res.send(auditLogsToCsv(logs));
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Hierarchy Category Configs
@@ -681,7 +682,7 @@ const CategoryOrderSchema = z.object({
   ),
 });
 
-router.get("/categories", async (_req: Request, res: Response): Promise<void> => {
+router.get("/categories", asyncHandler(async (_req: Request, res: Response): Promise<void> => {
   const [configs, spaces] = await Promise.all([getCategoryConfigs(), getSpaces()]);
 
   // Collect all category names currently used by spaces
@@ -706,9 +707,9 @@ router.get("/categories", async (_req: Request, res: Response): Promise<void> =>
   });
 
   res.json(merged);
-});
+}));
 
-router.put("/categories", async (req: Request, res: Response): Promise<void> => {
+router.put("/categories", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const parsed = CategoryOrderSchema.safeParse(req.body);
   if (!parsed.success) { zodError(res, parsed.error); return; }
 
@@ -725,6 +726,6 @@ router.put("/categories", async (req: Request, res: Response): Promise<void> => 
   });
 
   res.json({ message: "Category order saved." });
-});
+}));
 
 export default router;
