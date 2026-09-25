@@ -6,7 +6,6 @@
 
 # Plan files (local planning only)
 *plan.md
-CLAUDE.md
 
 # Dependencies
 node_modules/
