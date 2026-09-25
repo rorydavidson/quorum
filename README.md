@@ -468,6 +468,7 @@ pnpm test:e2e
 ```
 
 - **BFF** — `vitest` route/service/middleware tests with mocked Google/DB/SMTP (`apps/bff/src/**/*.test.ts`).
+- **DB layer on PostgreSQL** — CI runs `apps/bff/src/services/db.test.ts` a second time against a real `postgres:16` service (`TEST_DATABASE_URL`), since RETURNING, ON CONFLICT and timestamp handling differ from the in-memory SQLite used by the unit run.
 - **Web components** — `@testing-library/react` under `vitest`/jsdom for the key UI (`DocumentList` read receipts & filters, `NotifyMeButton`, `FormattedText` sanitisation, `ErrorState`, the CSRF client) — `apps/web/**/*.test.tsx`.
 - **E2E** — `Playwright` specs in `e2e/` drive the real app booted in **dev-auth-bypass + mock mode** (no Keycloak, Google, Redis or SMTP needed): public landing, dashboard, spaces navigation, document listing, PDF viewer open/close, and the Official Records filter. A second project runs the smoke suite under **iPad Pro emulation** for touch/layout coverage. `globalSetup` builds shared types and seeds sample spaces into a throwaway SQLite DB; Playwright starts the BFF and web dev servers automatically.
 
