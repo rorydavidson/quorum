@@ -10,14 +10,18 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import db, {
   deleteSection,
   deleteSpace,
+  getEventMetadata,
   getSectionById,
   getSpaceById,
   getSpaces,
   getSpacesByGroups,
+  restoreBackup,
   runMigrations,
+  upsertEventMetadata,
   upsertSection,
   upsertSpace,
 } from "./db.js";
+import { EventSpaceMismatchError } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -52,7 +56,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  // Wipe data between tests. Delete sections first to avoid FK issues.
+  // Wipe data between tests. Delete children first to avoid FK issues.
+  await db("event_metadata").delete();
   await db("space_sections").delete();
   await db("spaces").delete();
 });
@@ -441,5 +446,95 @@ describe("deleteSection()", () => {
 
     // sec-1 under space-1 should still exist
     expect(await getSectionById("space-1", "sec-1")).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Event metadata — must be scoped to the space the caller was authorised for
+// ---------------------------------------------------------------------------
+
+describe("getEventMetadata() / upsertEventMetadata()", () => {
+  beforeEach(async () => {
+    await upsertSpace("board", BASE_SPACE);
+    await upsertSpace("finance", { ...BASE_SPACE, name: "Finance", keycloakGroup: "/finance" });
+  });
+
+  it("creates metadata under the given space", async () => {
+    const created = await upsertEventMetadata("evt-1", "board", {
+      googleDocUrl: "https://docs.google.com/document/d/abc",
+    });
+    expect(created).toEqual({
+      id: "evt-1",
+      spaceId: "board",
+      googleDocUrl: "https://docs.google.com/document/d/abc",
+      agendaItems: [],
+    });
+  });
+
+  it("does not return another space's metadata for the same event id", async () => {
+    await upsertEventMetadata("evt-1", "board", { agendaItems: [] });
+
+    expect(await getEventMetadata("evt-1", "board")).toBeDefined();
+    expect(await getEventMetadata("evt-1", "finance")).toBeUndefined();
+  });
+
+  it("refuses to overwrite metadata that belongs to another space", async () => {
+    await upsertEventMetadata("evt-1", "board", {
+      googleDocUrl: "https://docs.google.com/document/d/original",
+    });
+
+    await expect(
+      upsertEventMetadata("evt-1", "finance", {
+        googleDocUrl: "https://evil.example/hijacked",
+      }),
+    ).rejects.toBeInstanceOf(EventSpaceMismatchError);
+
+    const untouched = await getEventMetadata("evt-1", "board");
+    expect(untouched?.googleDocUrl).toBe("https://docs.google.com/document/d/original");
+    expect(untouched?.spaceId).toBe("board");
+  });
+
+  it("updates in place when the space matches", async () => {
+    await upsertEventMetadata("evt-1", "board", { agendaItems: [] });
+    const updated = await upsertEventMetadata("evt-1", "board", {
+      agendaItems: [{ id: "a1", text: "Approve minutes", completed: false }],
+    });
+
+    expect(updated.agendaItems).toHaveLength(1);
+    const rows = await db("event_metadata").where({ id: "evt-1" });
+    expect(rows).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// restoreBackup — defensive handling of older backup shapes
+// ---------------------------------------------------------------------------
+
+describe("restoreBackup()", () => {
+  it("stores an empty uploadGroups array when the backup omits the field", async () => {
+    await restoreBackup({
+      version: 1,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      spaces: [
+        {
+          id: "board",
+          name: "Board",
+          keycloakGroup: "/board-members",
+          driveFolderId: "folder-1",
+          hierarchyCategory: "Board Level",
+          // Simulates a backup written before uploadGroups existed.
+          uploadGroups: undefined as unknown as string[],
+          sortOrder: 0,
+          sections: [],
+        },
+      ],
+      eventMetadata: [],
+    });
+
+    // Previously JSON.stringify(undefined) stored the string "undefined",
+    // which made every subsequent getSpaces() throw on JSON.parse.
+    const spaces = await getSpaces();
+    expect(spaces).toHaveLength(1);
+    expect(spaces[0].uploadGroups).toEqual([]);
   });
 });

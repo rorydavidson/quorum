@@ -83,7 +83,7 @@ router.get('/:spaceId/:eventId', asyncHandler(async (req: Request, res: Response
   }
 
   // Fetch metadata stored in our DB
-  const metadata = await getEventMetadata(eventId);
+  const metadata = await getEventMetadata(eventId, spaceId);
 
   res.json({
     event: {

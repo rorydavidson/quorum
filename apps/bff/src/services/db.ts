@@ -1,5 +1,6 @@
 import Knex from "knex";
 import { logger } from "./logger.js";
+import { EventSpaceMismatchError } from "./errors.js";
 import {
   SpaceConfig,
   SpaceSection,
@@ -462,15 +463,25 @@ function rowToEventMetadata(row: EventMetadataRow): EventMetadata {
   };
 }
 
+/**
+ * Fetch metadata for an event, scoped to the space the caller was authorised
+ * for. A row that exists under another space is treated as not found.
+ */
 export async function getEventMetadata(
   id: string,
+  spaceId: string,
 ): Promise<EventMetadata | undefined> {
   const row = await db<EventMetadataRow>("event_metadata")
-    .where({ id })
+    .where({ id, space_id: spaceId })
     .first();
   return row ? rowToEventMetadata(row) : undefined;
 }
 
+/**
+ * Create or update metadata for an event within a space.
+ * Throws EventSpaceMismatchError if the id already belongs to another space,
+ * so a caller can never move or overwrite another space's record.
+ */
 export async function upsertEventMetadata(
   id: string,
   spaceId: string,
@@ -479,6 +490,10 @@ export async function upsertEventMetadata(
   const existing = await db<EventMetadataRow>("event_metadata")
     .where({ id })
     .first();
+
+  if (existing && existing.space_id !== spaceId) {
+    throw new EventSpaceMismatchError(id);
+  }
 
   const rowToInsert: Partial<EventMetadataRow> = {
     id,
@@ -494,7 +509,7 @@ export async function upsertEventMetadata(
 
   if (existing) {
     await db<EventMetadataRow>("event_metadata")
-      .where({ id })
+      .where({ id, space_id: spaceId })
       .update(rowToInsert);
   } else {
     // If inserting new, ensuring defaults
@@ -504,7 +519,7 @@ export async function upsertEventMetadata(
     );
   }
 
-  const updated = await getEventMetadata(id);
+  const updated = await getEventMetadata(id, spaceId);
   return updated!;
 }
 
@@ -557,7 +572,9 @@ export async function restoreBackup(backup: SiteBackup): Promise<void> {
         ical_url: space.icalUrl ?? null,
         discourse_category_slug: space.discourseCategorySlug ?? null,
         hierarchy_category: space.hierarchyCategory,
-        upload_groups: JSON.stringify(space.uploadGroups),
+        // Guard against older backups that omit the field: JSON.stringify(undefined)
+        // is the string "undefined", which breaks JSON.parse on every later read.
+        upload_groups: JSON.stringify(space.uploadGroups ?? []),
         sort_order: space.sortOrder,
       };
       await trx("spaces").insert(spaceRow);

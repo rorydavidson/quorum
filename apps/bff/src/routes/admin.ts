@@ -22,6 +22,8 @@ import {
   markDriveFileSeen,
 } from "../services/db.js";
 import { sendMail, isMailerConfigured } from "../services/mailer.js";
+import { reqLog } from "../services/logger.js";
+import { AgendaItemSchema, HttpUrlOrEmptySchema, zodError } from "../utils/validation.js";
 import { copyFileInDrive, verifyFileAncestry } from "../services/drive.js";
 import { notifyActivity } from "../services/notifications.js";
 
@@ -62,17 +64,67 @@ const SectionWriteSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
 });
 
-// Helper: sends Zod validation errors as a structured 400 response
-function zodError(res: Response, err: z.ZodError): void {
-  res.status(400).json({
-    error: "Validation failed",
-    code: "INVALID_PAYLOAD",
-    details: err.errors.map((e) => ({
-      path: e.path.join("."),
-      message: e.message,
-    })),
+// A backup file is admin-supplied JSON, but it still goes through the same
+// validation as the individual admin forms: every space and section must be
+// well-formed, icalUrl must be https (it is fetched server-side, so this is
+// the SSRF guard), and defaults are filled in so nothing undefined reaches
+// the DB layer.
+const BackupSpaceSchema = SpaceWriteSchema.required({ id: true }).extend({
+  uploadGroups: z.array(z.string().max(200)).default([]),
+  sortOrder: z.number().int().min(0).default(0),
+  sections: z
+    .array(
+      SectionWriteSchema.required({ id: true }).extend({
+        sortOrder: z.number().int().min(0).default(0),
+      }),
+    )
+    .default([]),
+});
+
+const BackupEventMetadataSchema = z.object({
+  id: z.string().min(1).max(200),
+  spaceId: z.string().min(1).max(100),
+  googleDocUrl: HttpUrlOrEmptySchema.optional(),
+  agendaItems: z.array(AgendaItemSchema).max(200).default([]),
+});
+
+const BackupSchema = z
+  .object({
+    version: z.number().int().default(1),
+    timestamp: z.string().max(64).default(() => new Date().toISOString()),
+    spaces: z.array(BackupSpaceSchema),
+    eventMetadata: z.array(BackupEventMetadataSchema).default([]),
+    categoryConfigs: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(200),
+          sortOrder: z.number().int().min(0),
+        }),
+      )
+      .optional(),
+    subscriptions: z
+      .array(
+        z.object({
+          userId: z.string().min(1).max(200),
+          spaceId: z.string().min(1).max(100),
+          email: z.string().email().max(320),
+          createdAt: z.string().max(64),
+        }),
+      )
+      .optional(),
+  })
+  .superRefine((backup, ctx) => {
+    const spaceIds = new Set(backup.spaces.map((s) => s.id));
+    backup.eventMetadata.forEach((meta, i) => {
+      if (!spaceIds.has(meta.spaceId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["eventMetadata", i, "spaceId"],
+          message: `references unknown space "${meta.spaceId}"`,
+        });
+      }
+    });
   });
-}
 
 // All admin routes require auth + admin group
 router.use(requireAuth);
@@ -454,27 +506,27 @@ router.get("/backup", async (_req: Request, res: Response): Promise<void> => {
 });
 
 router.post("/import", async (req: Request, res: Response): Promise<void> => {
+  const parsed = BackupSchema.safeParse(req.body);
+  if (!parsed.success) { zodError(res, parsed.error); return; }
+
   try {
-    const backup = req.body;
-    if (!backup || typeof backup !== 'object' || !Array.isArray(backup.spaces)) {
-      res.status(400).json({ error: "Invalid backup format", code: "INVALID_BACKUP" });
-      return;
-    }
-    await restoreBackup(backup);
-
-    const user = req.session.user!;
-    await createAuditLog({
-      userId: user.sub,
-      userName: user.name,
-      action: "RESTORE_BACKUP",
-      entityType: "SITE",
-      entityId: "SITE",
-    });
-
-    res.json({ message: "Backup restored successfully" });
+    await restoreBackup(parsed.data);
   } catch (err) {
+    reqLog(req).error({ err }, "Backup restore failed");
     res.status(500).json({ error: "Import failed", code: "IMPORT_FAILED" });
+    return;
   }
+
+  const user = req.session.user!;
+  await createAuditLog({
+    userId: user.sub,
+    userName: user.name,
+    action: "RESTORE_BACKUP",
+    entityType: "SITE",
+    entityId: "SITE",
+  });
+
+  res.json({ message: "Backup restored successfully" });
 });
 
 router.post("/reset", async (req: Request, res: Response): Promise<void> => {

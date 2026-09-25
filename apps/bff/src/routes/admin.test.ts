@@ -713,3 +713,159 @@ describe('Admin routes — icalUrl scheme validation', () => {
     expect(db.upsertSpace).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Backup import — Zod validation (security rule 8)
+// ---------------------------------------------------------------------------
+
+describe('POST /admin/import — backup validation', () => {
+  const validBackup = {
+    version: 1,
+    timestamp: '2026-01-01T00:00:00.000Z',
+    spaces: [
+      {
+        id: 'board',
+        name: 'Board',
+        keycloakGroup: '/board-members',
+        driveFolderId: 'folder-1',
+        hierarchyCategory: 'Board Level',
+        uploadGroups: ['secretariat'],
+        sortOrder: 0,
+        sections: [
+          { id: 'agenda', name: 'Agenda', driveFolderId: 'folder-2', sortOrder: 0 },
+        ],
+      },
+    ],
+    eventMetadata: [
+      {
+        id: 'evt-1',
+        spaceId: 'board',
+        googleDocUrl: 'https://docs.google.com/document/d/abc',
+        agendaItems: [{ id: 'a1', text: 'Approve minutes', completed: false }],
+      },
+    ],
+    categoryConfigs: [{ name: 'Board Level', sortOrder: 0 }],
+    subscriptions: [
+      { userId: 'u1', spaceId: 'board', email: 'u1@example.com', createdAt: '2026-01-01T00:00:00.000Z' },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.restoreBackup).mockResolvedValue(undefined);
+  });
+
+  it('restores a well-formed backup and writes an audit log', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(validBackup);
+
+    expect(res.status).toBe(200);
+    expect(db.restoreBackup).toHaveBeenCalledTimes(1);
+    expect(db.createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'RESTORE_BACKUP' }),
+    );
+  });
+
+  it('fills in defaults so older backups cannot store undefined fields', async () => {
+    const minimal = {
+      spaces: [
+        {
+          id: 'board',
+          name: 'Board',
+          keycloakGroup: '/board-members',
+          driveFolderId: 'folder-1',
+          hierarchyCategory: 'Board Level',
+          // no uploadGroups, sortOrder or sections
+        },
+      ],
+      // no eventMetadata
+    };
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(minimal);
+
+    expect(res.status).toBe(200);
+    const restored = vi.mocked(db.restoreBackup).mock.calls[0][0];
+    expect(restored.spaces[0].uploadGroups).toEqual([]);
+    expect(restored.spaces[0].sortOrder).toBe(0);
+    expect(restored.spaces[0].sections).toEqual([]);
+    expect(restored.eventMetadata).toEqual([]);
+  });
+
+  it('rejects a body with no spaces array', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send({ version: 1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_PAYLOAD');
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-https icalUrl (SSRF guard applies to imports too)', async () => {
+    const backup = {
+      ...validBackup,
+      spaces: [{ ...validBackup.spaces[0], icalUrl: 'http://169.254.169.254/latest/meta-data/' }],
+    };
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(backup);
+
+    expect(res.status).toBe(400);
+    expect(res.body.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'spaces.0.icalUrl' })]),
+    );
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a javascript: googleDocUrl in event metadata', async () => {
+    const backup = {
+      ...validBackup,
+      eventMetadata: [{ ...validBackup.eventMetadata[0], googleDocUrl: 'javascript:alert(1)' }],
+    };
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(backup);
+
+    expect(res.status).toBe(400);
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('rejects event metadata that references a space not in the backup', async () => {
+    const backup = {
+      ...validBackup,
+      eventMetadata: [{ ...validBackup.eventMetadata[0], spaceId: 'ghost' }],
+    };
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(backup);
+
+    expect(res.status).toBe(400);
+    expect(res.body.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'eventMetadata.0.spaceId' })]),
+    );
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed space inside the backup', async () => {
+    const backup = { spaces: [{ id: 'board' }] };
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(backup);
+
+    expect(res.status).toBe(400);
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 IMPORT_FAILED when the restore itself throws', async () => {
+    vi.mocked(db.restoreBackup).mockRejectedValueOnce(new Error('disk full'));
+    const app = await createApp(adminUser);
+    const res = await request(app).post('/admin/import').send(validBackup);
+
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('IMPORT_FAILED');
+    expect(db.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a non-admin', async () => {
+    const app = await createApp(regularUser);
+    const res = await request(app).post('/admin/import').send(validBackup);
+
+    expect(res.status).toBe(403);
+    expect(db.restoreBackup).not.toHaveBeenCalled();
+  });
+});
