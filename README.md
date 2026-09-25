@@ -367,6 +367,7 @@ FRONTEND_ORIGIN=http://localhost:3000
 # Base URL of the Discourse forum. Override per environment (e.g. staging forum).
 DISCOURSE_URL=https://forums.snomed.org
 # DISCOURSE_MOCK=true   # Uncomment to return mock topics without hitting the API
+# CALENDAR_MOCK=true    # Uncomment to show sample meetings when every calendar fetch fails (local demos only)
 
 # Discourse API credentials — required only for private/restricted categories.
 # Leave both unset if your forum categories are fully public.
