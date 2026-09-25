@@ -2,51 +2,24 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { getEventMetadata, upsertEventMetadata, getSpaceById, createAuditLog } from "../services/db.js";
+import { EventSpaceMismatchError } from "../services/errors.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { userCanAccessSpace, isAdminUser } from "../utils/rbac.js";
+import { userCanAccessSpace, userCanUpload, isAdminUser } from "../utils/rbac.js";
+import { AgendaItemSchema, HttpUrlOrEmptySchema, zodError } from "../utils/validation.js";
 import { notifyActivity } from "../services/notifications.js";
 
 const router: IRouter = Router();
 
 // ---------------------------------------------------------------------------
 // Validation
-//
-// The googleDocUrl is later rendered as an <a href> in the frontend. React
-// does NOT block javascript:/data: URLs in href, so an unvalidated value would
-// allow stored XSS. Restrict it to http(s) here (empty string clears it).
 // ---------------------------------------------------------------------------
-
-const AgendaItemSchema = z.object({
-  id: z.string().min(1).max(100),
-  text: z.string().min(1).max(2000),
-  responsible: z.string().max(200).optional(),
-  completed: z.boolean(),
-});
 
 const EventMetadataUpdateSchema = z
   .object({
-    googleDocUrl: z
-      .string()
-      .max(2048)
-      .refine(
-        (v) => v === "" || /^https?:\/\//i.test(v),
-        "googleDocUrl must be an http(s) URL",
-      )
-      .optional(),
+    googleDocUrl: HttpUrlOrEmptySchema.optional(),
     agendaItems: z.array(AgendaItemSchema).max(200).optional(),
   })
   .strict();
-
-function zodError(res: Response, err: z.ZodError): void {
-  res.status(400).json({
-    error: "Validation failed",
-    code: "INVALID_PAYLOAD",
-    details: err.errors.map((e) => ({
-      path: e.path.join("."),
-      message: e.message,
-    })),
-  });
-}
 
 // All event metadata routes require session auth
 router.use(requireAuth);
@@ -80,7 +53,7 @@ router.get(
             return;
         }
 
-        const metadata = await getEventMetadata(eventId);
+        const metadata = await getEventMetadata(eventId, spaceId);
 
         if (!metadata) {
             // Return empty defaults if not found
@@ -98,6 +71,9 @@ router.get(
 
 /**
  * Update metadata for an event.
+ *
+ * Writing is restricted to the space's upload groups (and admins), matching
+ * the rule for documents: reading a space does not imply editing its agendas.
  */
 router.post(
     "/:spaceId/:eventId",
@@ -116,21 +92,37 @@ router.post(
             return;
         }
 
-        // Auth check
-        if (
-            !userCanAccessSpace(
-                user.groups,
-                space.keycloakGroup,
-                isAdminUser(user.groups),
-            )
-        ) {
+        const admin = isAdminUser(user.groups);
+
+        if (!userCanAccessSpace(user.groups, space.keycloakGroup, admin)) {
             res.status(403).json({ error: "Access denied", code: "FORBIDDEN" });
             return;
         }
 
+        if (!userCanUpload(user.groups, space.uploadGroups, admin)) {
+            res.status(403).json({
+                error: "You do not have permission to edit events in this space",
+                code: "FORBIDDEN",
+            });
+            return;
+        }
+
         // Fetch existing metadata for comparison
-        const existing = await getEventMetadata(eventId);
-        const updated = await upsertEventMetadata(eventId, spaceId, payload);
+        const existing = await getEventMetadata(eventId, spaceId);
+
+        let updated;
+        try {
+            updated = await upsertEventMetadata(eventId, spaceId, payload);
+        } catch (err) {
+            if (err instanceof EventSpaceMismatchError) {
+                res.status(409).json({
+                    error: "This event belongs to a different space",
+                    code: "EVENT_SPACE_CONFLICT",
+                });
+                return;
+            }
+            throw err;
+        }
 
         // Audit Logging
         let action = "UPDATE_EVENT_AGENDA";

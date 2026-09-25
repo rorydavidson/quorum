@@ -92,7 +92,7 @@ router.get("/categories", asyncHandler(async (_req, res) => {
 // GET /documents — list all spaces the user can access
 // ---------------------------------------------------------------------------
 
-router.get("/", async (req: Request, res: Response): Promise<void> => {
+router.get("/", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const user = req.session.user!;
   const admin = isAdminUser(user.groups);
   const allSpaces = await getSpaces();
@@ -102,13 +102,13 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       userCanAccessSpace(user.groups, s.keycloakGroup, false),
     );
   res.json(accessible);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /documents/:spaceId — list files in a space's default Drive folder
 // ---------------------------------------------------------------------------
 
-router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
+router.get("/:spaceId", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const user = req.session.user!;
   const space = await getSpaceById(String(req.params.spaceId));
 
@@ -153,13 +153,13 @@ router.get("/:spaceId", async (req: Request, res: Response): Promise<void> => {
       .status(502)
       .json({ error: "Failed to list files from Drive", code: "DRIVE_ERROR" });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /documents/:spaceId/meta — return space config only (no Drive call)
 // ---------------------------------------------------------------------------
 
-router.get("/:spaceId/meta", async (req: Request, res: Response): Promise<void> => {
+router.get("/:spaceId/meta", asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const user = req.session.user!;
   const space = await getSpaceById(String(req.params.spaceId));
 
@@ -174,7 +174,7 @@ router.get("/:spaceId/meta", async (req: Request, res: Response): Promise<void> 
   }
 
   res.json({ space });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /documents/:spaceId/sections/:sectionId — list files in a named section
@@ -182,7 +182,7 @@ router.get("/:spaceId/meta", async (req: Request, res: Response): Promise<void> 
 
 router.get(
   "/:spaceId/sections/:sectionId",
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const user = req.session.user!;
     const spaceId = String(req.params.spaceId);
     const sectionId = String(req.params.sectionId);
@@ -240,7 +240,7 @@ router.get(
         code: "DRIVE_ERROR",
       });
     }
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------

@@ -193,15 +193,40 @@ describe("getUpcomingEvents()", () => {
     expect(result).toHaveLength(3);
   });
 
-  it("falls back to mock events when all iCal fetches fail", async () => {
+  it("returns [] when all iCal fetches fail and CALENDAR_MOCK is not set", async () => {
     mockFromURL.mockRejectedValueOnce(new Error("network error"));
 
     const result = await getUpcomingEvents([calEntry()], 10, 30);
 
-    // Mock events contain at least 1 event (the MOCK_RAW_EVENTS fallback)
-    expect(result.length).toBeGreaterThan(0);
-    // All events should be attached to the supplied calendar entry's space
-    result.forEach((e) => expect(e.spaceId).toBe("space-1"));
+    // A broken calendar must never surface invented meetings to real users.
+    expect(result).toEqual([]);
+  });
+
+  it("serves sample events when all iCal fetches fail and CALENDAR_MOCK=true", async () => {
+    vi.stubEnv("CALENDAR_MOCK", "true");
+    try {
+      mockFromURL.mockRejectedValueOnce(new Error("network error"));
+
+      const result = await getUpcomingEvents([calEntry()], 10, 30);
+
+      expect(result.length).toBeGreaterThan(0);
+      // All events should be attached to the supplied calendar entry's space
+      result.forEach((e) => expect(e.spaceId).toBe("space-1"));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not serve sample events when CALENDAR_MOCK=true but a fetch succeeded", async () => {
+    vi.stubEnv("CALENDAR_MOCK", "true");
+    try {
+      mockFromURL.mockResolvedValueOnce({} as never);
+
+      const result = await getUpcomingEvents([calEntry()], 10, 30);
+      expect(result).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("returns empty array when iCal fetch succeeds but yields 0 events (no fallback)", async () => {

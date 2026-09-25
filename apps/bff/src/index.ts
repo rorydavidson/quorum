@@ -21,8 +21,9 @@ import notificationsRouter from "./routes/notifications.js";
 import metricsRouter from "./routes/metrics.js";
 import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
-import { logger, reqLog } from "./services/logger.js";
+import { logger } from "./services/logger.js";
 import { httpLogger } from "./middleware/httpLogger.js";
+import { errorHandler } from "./middleware/errorHandler.js";
 import { startDriveSweep, stopDriveSweep } from "./services/driveSweep.js";
 
 // ---------------------------------------------------------------------------
@@ -184,30 +185,10 @@ app.use("/notifications", notificationsRouter);
 app.use("/metrics", metricsRouter);
 
 // ---------------------------------------------------------------------------
-// Global Error Handler
+// Global Error Handler — see middleware/errorHandler.ts
 // ---------------------------------------------------------------------------
 
-interface AppError extends Error {
-  status?: number;
-  statusCode?: number;
-  code?: string;
-}
-
-app.use(
-  (
-    err: AppError,
-    req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction,
-  ) => {
-    const status = err.status || err.statusCode || 500;
-    reqLog(req).error({ err, status, code: err.code }, "Unhandled request error");
-    res.status(status).json({
-      error: err.message || "Internal Server Error",
-      code: err.code || "INTERNAL_ERROR",
-    });
-  },
-);
+app.use(errorHandler);
 
 // ---------------------------------------------------------------------------
 // 404 fallback

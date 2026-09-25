@@ -39,6 +39,29 @@ function isServiceAccountMode(): boolean {
   return !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
 }
 
+/**
+ * Sample events are only ever served when CALENDAR_MOCK=true is set
+ * explicitly (local demos, screenshots). In every other environment a
+ * calendar that cannot be fetched is an empty calendar, never invented
+ * meetings shown to real board members.
+ */
+function isMockMode(): boolean {
+  return process.env.CALENDAR_MOCK === 'true';
+}
+
+function mockEventsFor(calendars: CalendarEntry[], limit: number, reason: string): CalendarEvent[] {
+  if (!isMockMode()) {
+    logger.warn(`[calendar] ${reason} — returning no events (set CALENDAR_MOCK=true to serve sample data)`);
+    return [];
+  }
+  logger.debug(`[calendar] ${reason} — CALENDAR_MOCK=true, serving sample events`);
+  return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
+    ...e,
+    spaceId: calendars[i % calendars.length].spaceId,
+    spaceName: calendars[i % calendars.length].spaceName,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Internal type — events without space context (added by the route layer)
 // ---------------------------------------------------------------------------
@@ -46,8 +69,8 @@ function isServiceAccountMode(): boolean {
 type RawEvent = Omit<CalendarEvent, 'spaceId' | 'spaceName'>;
 
 // ---------------------------------------------------------------------------
-// Mock events — future dates relative to today (2026-02-26)
-// Shown only when NO calendarId is configured OR iCal fetch fails for all.
+// Sample events for local demos. Only served when CALENDAR_MOCK=true and
+// every configured calendar failed to fetch — see mockEventsFor().
 // ---------------------------------------------------------------------------
 
 const MOCK_RAW_EVENTS: RawEvent[] = [
@@ -257,7 +280,7 @@ export async function listEvents(
  * Priority order:
  *  1. Google Calendar API (Service Account) — entries with a non-empty calendarId when SA creds set
  *  2. iCal feeds — entries with an icalUrl (always); or all entries when SA is not configured
- *  3. Mock data — fallback only when no real data was fetched from any source
+ *  3. Nothing — if every fetch failed the result is [] (sample events only with CALENDAR_MOCK=true)
  */
 export async function getUpcomingEvents(
   calendars: CalendarEntry[],
@@ -382,13 +405,7 @@ export async function getUpcomingEvents(
         .slice(0, limit);
     }
 
-    // Fall through to mock only if both SA and iCal-only fetches all failed
-    logger.debug('[calendar] SA mode: no real data fetched from any source — using mock events');
-    return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
-      ...e,
-      spaceId: calendars[i % calendars.length].spaceId,
-      spaceName: calendars[i % calendars.length].spaceName,
-    }));
+    return mockEventsFor(calendars, limit, 'SA mode: no real data fetched from any source');
   }
 
   // ------------------------------------------------------------------
@@ -442,14 +459,9 @@ export async function getUpcomingEvents(
   }
 
   // ------------------------------------------------------------------
-  // Tier 3: Mock data — all fetches failed (private calendars or network error)
+  // Tier 3: all fetches failed (private calendars or network error)
   // ------------------------------------------------------------------
-  logger.debug('[calendar] All iCal fetches failed — using mock events');
-  return MOCK_RAW_EVENTS.slice(0, limit).map((e, i) => ({
-    ...e,
-    spaceId: calendars[i % calendars.length].spaceId,
-    spaceName: calendars[i % calendars.length].spaceName,
-  }));
+  return mockEventsFor(calendars, limit, 'All iCal fetches failed');
 }
 
 /**
@@ -491,7 +503,8 @@ export async function getEventByID(
     }
   }
 
-  // Finally, check mock data
-  const mock = MOCK_RAW_EVENTS.find((e) => e.id === eventId);
-  return mock ?? null;
+  if (isMockMode()) {
+    return MOCK_RAW_EVENTS.find((e) => e.id === eventId) ?? null;
+  }
+  return null;
 }

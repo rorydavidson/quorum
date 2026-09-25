@@ -13,6 +13,7 @@ import session from "express-session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { SessionUser, SpaceConfig } from "@snomed/types";
+import { EventSpaceMismatchError } from "../services/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -41,7 +42,8 @@ const BOARD_SPACE: SpaceConfig = {
   keycloakGroup: "/board-members",
   driveFolderId: "folder-board",
   hierarchyCategory: "Board Level",
-  uploadGroups: [],
+  // Board members may edit agendas; anyone else with read access may not.
+  uploadGroups: ["/board-members"],
   sortOrder: 1,
   sections: [],
 };
@@ -252,5 +254,100 @@ describe("POST /events/:spaceId/:eventId — agendaItems validation", () => {
 
     expect(res.status).toBe(400);
     expect(db.upsertEventMetadata).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /events/:spaceId/:eventId — write permission", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(BOARD_SPACE);
+    vi.mocked(db.getEventMetadata).mockResolvedValue(undefined);
+    vi.mocked(db.upsertEventMetadata).mockImplementation(
+      async (id, spaceId, payload) => ({
+        id,
+        spaceId,
+        googleDocUrl: payload.googleDocUrl,
+        agendaItems: payload.agendaItems ?? [],
+      }),
+    );
+  });
+
+  it("returns 403 for a user who can read the space but is not in an upload group", async () => {
+    const readOnlySpace: SpaceConfig = { ...BOARD_SPACE, uploadGroups: ["/secretariat"] };
+    vi.mocked(db.getSpaceById).mockResolvedValue(readOnlySpace);
+
+    const app = await createApp(BOARD_USER());
+    const res = await request(app)
+      .post("/events/board/evt-1")
+      .send({ googleDocUrl: "https://docs.google.com/document/d/abc" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("FORBIDDEN");
+    expect(db.upsertEventMetadata).not.toHaveBeenCalled();
+  });
+
+  it("allows a portal admin who is in neither the space group nor an upload group", async () => {
+    const app = await createApp(makeUser(["portal_admin"]));
+    const res = await request(app)
+      .post("/events/board/evt-1")
+      .send({ googleDocUrl: "https://docs.google.com/document/d/abc" });
+
+    expect(res.status).toBe(200);
+    expect(db.upsertEventMetadata).toHaveBeenCalled();
+  });
+
+  it("still allows reading for a user outside the upload groups", async () => {
+    const readOnlySpace: SpaceConfig = { ...BOARD_SPACE, uploadGroups: ["/secretariat"] };
+    vi.mocked(db.getSpaceById).mockResolvedValue(readOnlySpace);
+
+    const app = await createApp(BOARD_USER());
+    const res = await request(app).get("/events/board/evt-1");
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("/events/:spaceId/:eventId — cross-space isolation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getSpaceById).mockResolvedValue(BOARD_SPACE);
+    vi.mocked(db.getEventMetadata).mockResolvedValue(undefined);
+  });
+
+  it("GET scopes the metadata lookup to the space in the URL", async () => {
+    const app = await createApp(BOARD_USER());
+    await request(app).get("/events/board/evt-1");
+
+    expect(db.getEventMetadata).toHaveBeenCalledWith("evt-1", "board");
+  });
+
+  it("POST scopes the existing-metadata lookup to the space in the URL", async () => {
+    vi.mocked(db.upsertEventMetadata).mockResolvedValue({
+      id: "evt-1",
+      spaceId: "board",
+      agendaItems: [],
+    });
+
+    const app = await createApp(BOARD_USER());
+    await request(app)
+      .post("/events/board/evt-1")
+      .send({ agendaItems: [] });
+
+    expect(db.getEventMetadata).toHaveBeenCalledWith("evt-1", "board");
+  });
+
+  it("POST returns 409 when the event id already belongs to another space", async () => {
+    vi.mocked(db.upsertEventMetadata).mockRejectedValue(
+      new EventSpaceMismatchError("evt-1"),
+    );
+
+    const app = await createApp(BOARD_USER());
+    const res = await request(app)
+      .post("/events/board/evt-1")
+      .send({ googleDocUrl: "https://docs.google.com/document/d/abc" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("EVENT_SPACE_CONFLICT");
+    expect(db.createAuditLog).not.toHaveBeenCalled();
   });
 });
