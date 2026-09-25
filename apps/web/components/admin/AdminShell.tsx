@@ -1,1290 +1,160 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  ChevronDown,
-  ChevronRight,
-  FolderOpen,
-  Folder,
-  X,
-  Save,
-  AlertTriangle,
-  CheckCircle2,
-  Settings,
-  Download,
-  Upload,
-  Info,
-  RotateCcw,
-  BellRing,
-  Send,
-} from 'lucide-react';
-import type { SpaceConfig, SpaceSection, AuditLog, HierarchyCategoryConfig, SpaceSubscriber } from '@snomed/types';
-import { csrfFetch } from '@/lib/csrf';
+import { useCallback, useState } from 'react';
+import type { SpaceConfig, SpaceSection } from '@snomed/types';
+import { AdminHeader } from './AdminHeader';
+import { AuditLogView } from './AuditLogView';
+import { CategoryOrderView } from './CategoryOrderView';
 import { MetricsPanel } from './MetricsPanel';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { NotificationsView } from './NotificationsView';
+import { SectionForm } from './SectionForm';
+import { SpaceForm } from './SpaceForm';
+import { SpacesList } from './SpacesList';
+import { useToast } from './useToast';
 
 type View = 'list' | 'space-form' | 'section-form' | 'audit-log' | 'category-order' | 'analytics' | 'notifications';
 
-// Known audit actions/entity types for the filter dropdowns (stable enums in the BFF).
-const AUDIT_ACTIONS = [
-  'CREATE_SPACE', 'UPDATE_SPACE', 'DELETE_SPACE',
-  'CREATE_SECTION', 'UPDATE_SECTION', 'DELETE_SECTION',
-  'UPLOAD_DOCUMENT', 'DELETE_DOCUMENT', 'CREATE_FOLDER', 'CREATE_OFFICIAL_RECORD',
-  'CREATE_EVENT_AGENDA', 'UPDATE_EVENT_AGENDA', 'DELETE_EVENT_AGENDA', 'UPDATE_EVENT_DOC',
-  'UPDATE_CATEGORY_ORDER', 'RESTORE_BACKUP', 'RESET_SITE',
+const TABS: ReadonlyArray<{ key: View; label: string }> = [
+  { key: 'list', label: 'Spaces' },
+  { key: 'category-order', label: 'Category Order' },
+  { key: 'audit-log', label: 'Audit Log' },
+  { key: 'analytics', label: 'Analytics' },
+  { key: 'notifications', label: 'Notifications' },
 ];
-const AUDIT_ENTITY_TYPES = ['SPACE', 'SECTION', 'DOCUMENT', 'FILE', 'EVENT', 'CATEGORY', 'SITE'];
-const AUDIT_PAGE_SIZE = 100;
-
-interface AuditFilters {
-  action: string;
-  entityType: string;
-  user: string;
-  from: string;
-  to: string;
-}
-
-const EMPTY_AUDIT_FILTERS: AuditFilters = { action: '', entityType: '', user: '', from: '', to: '' };
-
-function auditQueryString(
-  filters: AuditFilters,
-  extra: Record<string, string | number> = {},
-): string {
-  const p = new URLSearchParams();
-  if (filters.action) p.set('action', filters.action);
-  if (filters.entityType) p.set('entityType', filters.entityType);
-  if (filters.user) p.set('user', filters.user);
-  if (filters.from) p.set('from', filters.from);
-  if (filters.to) p.set('to', filters.to);
-  for (const [k, v] of Object.entries(extra)) p.set(k, String(v));
-  const s = p.toString();
-  return s ? `?${s}` : '';
-}
-
-interface SpaceFormData {
-  id: string;
-  name: string;
-  description: string;
-  keycloakGroup: string;
-  driveFolderId: string;
-  calendarId: string;
-  icalUrl: string;
-  discourseCategorySlug: string;
-  hierarchyCategory: string;
-  uploadGroups: string; // comma-separated
-  sortOrder: string;
-}
-
-interface SectionFormData {
-  id: string;
-  name: string;
-  description: string;
-  driveFolderId: string;
-  sortOrder: string;
-}
-
-const EMPTY_SPACE_FORM: SpaceFormData = {
-  id: '', name: '', description: '', keycloakGroup: '', driveFolderId: '',
-  calendarId: '', icalUrl: '', discourseCategorySlug: '', hierarchyCategory: '', uploadGroups: '', sortOrder: '0',
-};
-
-const EMPTY_SECTION_FORM: SectionFormData = {
-  id: '', name: '', description: '', driveFolderId: '', sortOrder: '0',
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function spaceToForm(s: SpaceConfig): SpaceFormData {
-  return {
-    id: s.id,
-    name: s.name,
-    description: s.description ?? '',
-    keycloakGroup: s.keycloakGroup,
-    driveFolderId: s.driveFolderId,
-    calendarId: s.calendarId ?? '',
-    icalUrl: s.icalUrl ?? '',
-    discourseCategorySlug: s.discourseCategorySlug ?? '',
-    hierarchyCategory: s.hierarchyCategory,
-    uploadGroups: s.uploadGroups.join(', '),
-    sortOrder: String(s.sortOrder),
-  };
-}
-
-function sectionToForm(s: SpaceSection): SectionFormData {
-  return {
-    id: s.id,
-    name: s.name,
-    description: s.description ?? '',
-    driveFolderId: s.driveFolderId,
-    sortOrder: String(s.sortOrder),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function Toast({ message, type }: { message: string; type: 'success' | 'error' }) {
-  return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg text-sm font-medium ${type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
-      }`}>
-      {type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-      {message}
-    </div>
-  );
-}
-
-function FormField({
-  label, hint, required, children,
-}: {
-  label: string; hint?: string; required?: boolean; children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-snomed-grey mb-1">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {children}
-      {hint && <p className="mt-1 text-[11px] text-snomed-grey/50">{hint}</p>}
-    </div>
-  );
-}
-
-const inputCls = 'w-full rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey placeholder:text-snomed-grey/40 focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue transition-colors';
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 interface Props {
   initialSpaces: SpaceConfig[];
 }
 
+/**
+ * Admin dashboard. Owns the list of spaces and which view is showing; each
+ * view component owns its own data loading and actions.
+ */
 export function AdminShell({ initialSpaces }: Props) {
   const [spaces, setSpaces] = useState<SpaceConfig[]>(initialSpaces);
   const [expandedSpaceId, setExpandedSpaceId] = useState<string | null>(null);
-
-  // Form state
   const [view, setView] = useState<View>('list');
-  const [editingSpace, setEditingSpace] = useState<SpaceConfig | null>(null); // null = creating
+
+  // Which space / section a form is editing (null = creating).
+  const [editingSpace, setEditingSpace] = useState<SpaceConfig | null>(null);
   const [editingSection, setEditingSection] = useState<SpaceSection | null>(null);
   const [editingSectionSpaceId, setEditingSectionSpaceId] = useState<string>('');
 
-  const [spaceForm, setSpaceForm] = useState<SpaceFormData>(EMPTY_SPACE_FORM);
-  const [sectionForm, setSectionForm] = useState<SectionFormData>(EMPTY_SECTION_FORM);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
-
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [auditFilters, setAuditFilters] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
-  const [auditOffset, setAuditOffset] = useState(0);
-  const [hasMoreLogs, setHasMoreLogs] = useState(false);
-
-  const [categoryConfigs, setCategoryConfigs] = useState<{ name: string; sortOrder: number | null }[]>([]);
-  const [savingCategories, setSavingCategories] = useState(false);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-
-  const [subscribers, setSubscribers] = useState<SpaceSubscriber[]>([]);
-  const [loadingSubscribers, setLoadingSubscribers] = useState(false);
-  const [sendingTest, setSendingTest] = useState(false);
-
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+  const { showToast, toastElement } = useToast();
 
   const refreshSpaces = useCallback(async () => {
     const res = await fetch('/api/admin/spaces');
     if (res.ok) {
-      const data = await res.json() as SpaceConfig[];
-      setSpaces(data);
+      setSpaces((await res.json()) as SpaceConfig[]);
     }
   }, []);
 
-  const fetchAuditLogs = useCallback(async (opts: { append?: boolean } = {}) => {
-    setLoadingLogs(true);
-    const offset = opts.append ? auditOffset : 0;
-    try {
-      const qs = auditQueryString(auditFilters, { limit: AUDIT_PAGE_SIZE, offset });
-      const res = await fetch(`/api/admin/audit-logs${qs}`);
-      if (res.ok) {
-        const data = await res.json() as AuditLog[];
-        setAuditLogs((prev) => (opts.append ? [...prev, ...data] : data));
-        setAuditOffset(offset + data.length);
-        setHasMoreLogs(data.length === AUDIT_PAGE_SIZE);
-      } else {
-        showToast('Failed to fetch audit logs.', 'error');
-      }
-    } catch {
-      showToast('Failed to fetch audit logs.', 'error');
-    } finally {
-      setLoadingLogs(false);
-    }
-  }, [auditFilters, auditOffset, showToast]);
+  const backToList = () => setView('list');
 
-  const fetchSubscribers = useCallback(async () => {
-    setLoadingSubscribers(true);
-    try {
-      const res = await fetch('/api/admin/subscriptions');
-      if (res.ok) {
-        const data = await res.json() as { subscriptions: SpaceSubscriber[] };
-        setSubscribers(data.subscriptions);
-      } else {
-        showToast('Failed to load subscriptions.', 'error');
-      }
-    } catch {
-      showToast('Failed to load subscriptions.', 'error');
-    } finally {
-      setLoadingSubscribers(false);
-    }
-  }, [showToast]);
+  const tabs = TABS.map((tab) => (
+    <button
+      key={tab.key}
+      onClick={() => setView(tab.key)}
+      className={`pb-2 border-b-2 transition-all ${
+        view === tab.key
+          ? 'border-snomed-blue text-snomed-blue'
+          : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'
+      }`}
+    >
+      <h2 className="text-base font-semibold whitespace-nowrap">{tab.label}</h2>
+    </button>
+  ));
 
-  const sendTestEmail = useCallback(async () => {
-    setSendingTest(true);
-    try {
-      const res = await csrfFetch('/api/admin/notifications/test', { method: 'POST' });
-      const data = await res.json() as { sent?: boolean; smtpConfigured?: boolean; to?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Test failed');
-      if (!data.smtpConfigured) {
-        showToast('SMTP is not configured — the server logged the email instead of sending it (mock mode).', 'error');
-      } else if (data.sent) {
-        showToast(`Test email sent to ${data.to}. Check your inbox (and spam).`, 'success');
-      } else {
-        showToast('SMTP send failed — check the server logs for the SMTP error.', 'error');
-      }
-    } catch (err) {
-      showToast((err as Error).message, 'error');
-    } finally {
-      setSendingTest(false);
-    }
-  }, [showToast]);
+  let content: React.ReactNode;
+  switch (view) {
+    case 'space-form':
+      content = (
+        <SpaceForm
+          space={editingSpace}
+          onSaved={async () => {
+            await refreshSpaces();
+            setView('list');
+          }}
+          onCancel={backToList}
+          showToast={showToast}
+        />
+      );
+      break;
 
-  const loadCategoryConfigs = useCallback(async () => {
-    setLoadingCategories(true);
-    try {
-      const res = await fetch('/api/admin/categories');
-      if (res.ok) {
-        const data = await res.json() as { name: string; sortOrder: number | null }[];
-        setCategoryConfigs(data);
-      }
-    } catch {
-      showToast('Failed to load category order.', 'error');
-    } finally {
-      setLoadingCategories(false);
-    }
-  }, [showToast]);
+    case 'section-form':
+      content = (
+        <SectionForm
+          spaceId={editingSectionSpaceId}
+          spaceName={spaces.find((s) => s.id === editingSectionSpaceId)?.name}
+          section={editingSection}
+          onSaved={async () => {
+            await refreshSpaces();
+            setExpandedSpaceId(editingSectionSpaceId);
+            setView('list');
+          }}
+          onCancel={backToList}
+          showToast={showToast}
+        />
+      );
+      break;
 
-  async function saveCategoryOrder() {
-    setSavingCategories(true);
-    try {
-      const entries = categoryConfigs
-        .filter((c) => c.sortOrder !== null)
-        .map((c) => ({ name: c.name, sortOrder: c.sortOrder as number }));
-      const res = await csrfFetch('/api/admin/categories', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries }),
-      });
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? 'Save failed');
-      }
-      showToast('Category order saved.', 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
-    } finally {
-      setSavingCategories(false);
-    }
-  }
+    case 'category-order':
+      content = <CategoryOrderView tabs={tabs} showToast={showToast} />;
+      break;
 
-  // ---------------------------------------------------------------------------
-  // Space CRUD
-  // ---------------------------------------------------------------------------
+    case 'audit-log':
+      content = <AuditLogView tabs={tabs} showToast={showToast} />;
+      break;
 
-  function openCreateSpace() {
-    setEditingSpace(null);
-    setSpaceForm(EMPTY_SPACE_FORM);
-    setView('space-form');
-  }
-
-  function openEditSpace(space: SpaceConfig) {
-    setEditingSpace(space);
-    setSpaceForm(spaceToForm(space));
-    setView('space-form');
-  }
-
-  async function saveSpace() {
-    setSaving(true);
-    try {
-      const payload = {
-        id: spaceForm.id.trim(),
-        name: spaceForm.name.trim(),
-        description: spaceForm.description.trim() || undefined,
-        keycloakGroup: spaceForm.keycloakGroup.trim(),
-        driveFolderId: spaceForm.driveFolderId.trim(),
-        calendarId: spaceForm.calendarId.trim() || undefined,
-        icalUrl: spaceForm.icalUrl.trim() || undefined,
-        discourseCategorySlug: spaceForm.discourseCategorySlug.trim() || undefined,
-        hierarchyCategory: spaceForm.hierarchyCategory.trim(),
-        uploadGroups: spaceForm.uploadGroups.split(',').map((g) => g.trim()).filter(Boolean),
-        sortOrder: parseInt(spaceForm.sortOrder, 10) || 0,
-      };
-
-      const url = editingSpace ? `/api/admin/spaces/${editingSpace.id}` : '/api/admin/spaces';
-      const method = editingSpace ? 'PUT' : 'POST';
-
-      const res = await csrfFetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? 'Save failed');
-      }
-
-      await refreshSpaces();
-      setView('list');
-      showToast(editingSpace ? 'Space updated.' : 'Space created.', 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function confirmDeleteSpace(space: SpaceConfig) {
-    if (!confirm(`Delete "${space.name}"? This will also delete all its sections. This cannot be undone.`)) return;
-    setDeleting(space.id);
-    try {
-      const res = await csrfFetch(`/api/admin/spaces/${space.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      await refreshSpaces();
-      showToast(`"${space.name}" deleted.`, 'success');
-    } catch {
-      showToast('Delete failed.', 'error');
-    } finally {
-      setDeleting(null);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Section CRUD
-  // ---------------------------------------------------------------------------
-
-  function openCreateSection(spaceId: string) {
-    setEditingSectionSpaceId(spaceId);
-    setEditingSection(null);
-    setSectionForm(EMPTY_SECTION_FORM);
-    setView('section-form');
-  }
-
-  function openEditSection(spaceId: string, section: SpaceSection) {
-    setEditingSectionSpaceId(spaceId);
-    setEditingSection(section);
-    setSectionForm(sectionToForm(section));
-    setView('section-form');
-  }
-
-  async function saveSection() {
-    setSaving(true);
-    try {
-      const payload = {
-        id: sectionForm.id.trim(),
-        name: sectionForm.name.trim(),
-        description: sectionForm.description.trim() || undefined,
-        driveFolderId: sectionForm.driveFolderId.trim(),
-        sortOrder: parseInt(sectionForm.sortOrder, 10) || 0,
-      };
-
-      const url = editingSection
-        ? `/api/admin/spaces/${editingSectionSpaceId}/sections/${editingSection.id}`
-        : `/api/admin/spaces/${editingSectionSpaceId}/sections`;
-      const method = editingSection ? 'PUT' : 'POST';
-
-      const res = await csrfFetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? 'Save failed');
-      }
-
-      await refreshSpaces();
-      setView('list');
-      setExpandedSpaceId(editingSectionSpaceId);
-      showToast(editingSection ? 'Section updated.' : 'Section added.', 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function confirmDeleteSection(spaceId: string, section: SpaceSection) {
-    if (!confirm(`Delete section "${section.name}"? This cannot be undone.`)) return;
-    setDeleting(`${spaceId}:${section.id}`);
-    try {
-      const res = await csrfFetch(`/api/admin/spaces/${spaceId}/sections/${section.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      await refreshSpaces();
-      showToast(`Section "${section.name}" deleted.`, 'success');
-    } catch {
-      showToast('Delete failed.', 'error');
-    } finally {
-      setDeleting(null);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Backup & Import
-  // ---------------------------------------------------------------------------
-
-  async function exportSettings() {
-    try {
-      const res = await fetch('/api/admin/backup');
-      if (!res.ok) throw new Error('Export failed');
-      const data = await res.json();
-
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `snomed-spaces-backup-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      showToast('Settings exported successfully.', 'success');
-    } catch {
-      showToast('Export failed.', 'error');
-    }
-  }
-
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!confirm('Importing settings will OVERWRITE all existing spaces and sections. Are you sure you want to proceed?')) {
-      e.target.value = '';
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const text = await file.text();
-      const backup = JSON.parse(text);
-
-      const res = await csrfFetch('/api/admin/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(backup),
-      });
-
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? 'Import failed');
-      }
-
-      await refreshSpaces();
-      showToast('Settings imported successfully.', 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
-    } finally {
-      setSaving(false);
-      e.target.value = '';
-    }
-  }
-
-  async function resetSiteSettings() {
-    if (!confirm('This will DELETE all spaces, sections, and site settings. A backup will be downloaded first. Are you absolutely sure?')) {
-      return;
-    }
-
-    // Second confirmation for such a destructive action
-    if (!confirm('FINAL WARNING: This action is permanent (though you will have the backup file). Proceed?')) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      // 1. Export first
-      await exportSettings();
-
-      // 2. Clear
-      const res = await csrfFetch('/api/admin/reset', { method: 'POST' });
-      if (!res.ok) throw new Error('Reset failed');
-
-      await refreshSpaces();
-      showToast('Site settings cleared and backup downloaded.', 'success');
-    } catch (err) {
-      showToast('An error occurred during reset.', 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Render: Space Form
-  // ---------------------------------------------------------------------------
-
-  if (view === 'space-form') {
-    return (
-      <div className="max-w-2xl">
-        <div className="mb-6 flex items-center gap-3">
-          <button
-            onClick={() => setView('list')}
-            className="text-snomed-grey/50 hover:text-snomed-grey transition-colors"
-          >
-            <X size={20} />
-          </button>
-          <h2 className="text-lg font-semibold text-snomed-grey">
-            {editingSpace ? `Edit: ${editingSpace.name}` : 'Create Space'}
-          </h2>
+    case 'analytics':
+      content = (
+        <div>
+          <AdminHeader tabs={tabs} />
+          <MetricsPanel spaceNames={Object.fromEntries(spaces.map((s) => [s.id, s.name]))} />
         </div>
+      );
+      break;
 
-        <div className="rounded-xl border border-snomed-border bg-white shadow-sm p-6 space-y-5">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <FormField label="Space ID" hint="Unique slug, e.g. board — cannot be changed after creation" required>
-              <input
-                className={inputCls}
-                value={spaceForm.id}
-                onChange={(e) => setSpaceForm({ ...spaceForm, id: e.target.value })}
-                placeholder="board"
-                disabled={!!editingSpace}
-              />
-            </FormField>
-            <FormField label="Sort Order" hint="Lower numbers appear first">
-              <input
-                type="number"
-                className={inputCls}
-                value={spaceForm.sortOrder}
-                onChange={(e) => setSpaceForm({ ...spaceForm, sortOrder: e.target.value })}
-              />
-            </FormField>
-          </div>
+    case 'notifications':
+      content = <NotificationsView tabs={tabs} spaces={spaces} showToast={showToast} />;
+      break;
 
-          <FormField label="Display Name" required>
-            <input
-              className={inputCls}
-              value={spaceForm.name}
-              onChange={(e) => setSpaceForm({ ...spaceForm, name: e.target.value })}
-              placeholder="Board of Management"
-            />
-          </FormField>
-
-          <FormField label="Description">
-            <textarea
-              className={`${inputCls} resize-none`}
-              rows={2}
-              value={spaceForm.description}
-              onChange={(e) => setSpaceForm({ ...spaceForm, description: e.target.value })}
-              placeholder="Short description shown on the space card"
-            />
-          </FormField>
-
-          <div className="grid gap-5 sm:grid-cols-2">
-            <FormField label="Keycloak Group" hint='e.g. board-members or /board-members' required>
-              <input
-                className={inputCls}
-                value={spaceForm.keycloakGroup}
-                onChange={(e) => setSpaceForm({ ...spaceForm, keycloakGroup: e.target.value })}
-                placeholder="board-members"
-              />
-            </FormField>
-            <FormField label="Hierarchy Category" hint='e.g. Board Level, Working Groups' required>
-              <input
-                className={inputCls}
-                value={spaceForm.hierarchyCategory}
-                onChange={(e) => setSpaceForm({ ...spaceForm, hierarchyCategory: e.target.value })}
-                placeholder="Board Level"
-              />
-            </FormField>
-          </div>
-
-          <FormField label="Default Drive Folder ID" hint="Google Drive folder ID — used when no sections are defined" required>
-            <input
-              className={inputCls}
-              value={spaceForm.driveFolderId}
-              onChange={(e) => setSpaceForm({ ...spaceForm, driveFolderId: e.target.value })}
-              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-            />
-          </FormField>
-
-          <FormField
-            label="Google Calendar ID"
-            hint="Optional — use with Google Service Account credentials (private calendars)"
-          >
-            <input
-              className={inputCls}
-              value={spaceForm.calendarId}
-              onChange={(e) => setSpaceForm({ ...spaceForm, calendarId: e.target.value })}
-              placeholder="c_abc123@group.calendar.google.com"
-            />
-          </FormField>
-
-          <FormField
-            label="iCal / ICS Feed URL"
-            hint="Optional — paste any public iCal URL (Google, Outlook, Confluence, etc.). Works without credentials."
-          >
-            <input
-              className={inputCls}
-              value={spaceForm.icalUrl}
-              onChange={(e) => setSpaceForm({ ...spaceForm, icalUrl: e.target.value })}
-              placeholder="https://calendar.google.com/calendar/ical/…/public/basic.ics"
-            />
-          </FormField>
-
-          <FormField
-            label="Discourse Category Slug"
-            hint="Optional — Discourse forum category slug (e.g. board-members). Topics from this category will appear on the space overview."
-          >
-            <input
-              className={inputCls}
-              value={spaceForm.discourseCategorySlug}
-              onChange={(e) => setSpaceForm({ ...spaceForm, discourseCategorySlug: e.target.value })}
-              placeholder="board-members"
-            />
-          </FormField>
-
-          <FormField label="Upload Groups" hint="Keycloak groups allowed to upload. Comma-separated, e.g. secretariat, board-members">
-            <input
-              className={inputCls}
-              value={spaceForm.uploadGroups}
-              onChange={(e) => setSpaceForm({ ...spaceForm, uploadGroups: e.target.value })}
-              placeholder="secretariat"
-            />
-          </FormField>
-        </div>
-
-        <div className="mt-5 flex items-center gap-3">
-          <button
-            onClick={saveSpace}
-            disabled={saving || !spaceForm.name || !spaceForm.id || !spaceForm.keycloakGroup || !spaceForm.driveFolderId || !spaceForm.hierarchyCategory}
-            className="flex items-center gap-2 rounded-lg bg-snomed-blue px-5 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-          >
-            <Save size={16} />
-            {saving ? 'Saving…' : editingSpace ? 'Save Changes' : 'Create Space'}
-          </button>
-          <button
-            onClick={() => setView('list')}
-            className="rounded-lg border border-snomed-border px-5 py-2.5 text-sm text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
+    case 'list':
+    default:
+      content = (
+        <SpacesList
+          tabs={tabs}
+          spaces={spaces}
+          expandedSpaceId={expandedSpaceId}
+          onToggleExpand={setExpandedSpaceId}
+          refreshSpaces={refreshSpaces}
+          onCreateSpace={() => {
+            setEditingSpace(null);
+            setView('space-form');
+          }}
+          onEditSpace={(space) => {
+            setEditingSpace(space);
+            setView('space-form');
+          }}
+          onCreateSection={(spaceId) => {
+            setEditingSectionSpaceId(spaceId);
+            setEditingSection(null);
+            setView('section-form');
+          }}
+          onEditSection={(spaceId, section) => {
+            setEditingSectionSpaceId(spaceId);
+            setEditingSection(section);
+            setView('section-form');
+          }}
+          showToast={showToast}
+        />
+      );
   }
-
-  // ---------------------------------------------------------------------------
-  // Render: Section Form
-  // ---------------------------------------------------------------------------
-
-  if (view === 'section-form') {
-    const parentSpace = spaces.find((s) => s.id === editingSectionSpaceId);
-    return (
-      <div className="max-w-2xl">
-        <div className="mb-6 flex items-center gap-3">
-          <button
-            onClick={() => setView('list')}
-            className="text-snomed-grey/50 hover:text-snomed-grey transition-colors"
-          >
-            <X size={20} />
-          </button>
-          <div>
-            <p className="text-xs text-snomed-grey/50">{parentSpace?.name}</p>
-            <h2 className="text-lg font-semibold text-snomed-grey">
-              {editingSection ? `Edit section: ${editingSection.name}` : 'Add Document Section'}
-            </h2>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-snomed-border bg-white shadow-sm p-6 space-y-5">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <FormField label="Section ID" hint="Unique slug within this space, e.g. agendas" required>
-              <input
-                className={inputCls}
-                value={sectionForm.id}
-                onChange={(e) => setSectionForm({ ...sectionForm, id: e.target.value })}
-                placeholder="agendas"
-                disabled={!!editingSection}
-              />
-            </FormField>
-            <FormField label="Sort Order" hint="Lower numbers appear first">
-              <input
-                type="number"
-                className={inputCls}
-                value={sectionForm.sortOrder}
-                onChange={(e) => setSectionForm({ ...sectionForm, sortOrder: e.target.value })}
-              />
-            </FormField>
-          </div>
-
-          <FormField label="Section Name" required>
-            <input
-              className={inputCls}
-              value={sectionForm.name}
-              onChange={(e) => setSectionForm({ ...sectionForm, name: e.target.value })}
-              placeholder="Agendas"
-            />
-          </FormField>
-
-          <FormField label="Description">
-            <textarea
-              className={`${inputCls} resize-none`}
-              rows={2}
-              value={sectionForm.description}
-              onChange={(e) => setSectionForm({ ...sectionForm, description: e.target.value })}
-              placeholder="Short description shown on the space landing page"
-            />
-          </FormField>
-
-          <FormField label="Drive Folder ID" hint="The Google Drive folder ID that contains this section's documents" required>
-            <input
-              className={inputCls}
-              value={sectionForm.driveFolderId}
-              onChange={(e) => setSectionForm({ ...sectionForm, driveFolderId: e.target.value })}
-              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-            />
-          </FormField>
-        </div>
-
-        <div className="mt-5 flex items-center gap-3">
-          <button
-            onClick={saveSection}
-            disabled={saving || !sectionForm.name || !sectionForm.id || !sectionForm.driveFolderId}
-            className="flex items-center gap-2 rounded-lg bg-snomed-blue px-5 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-          >
-            <Save size={16} />
-            {saving ? 'Saving…' : editingSection ? 'Save Changes' : 'Add Section'}
-          </button>
-          <button
-            onClick={() => setView('list')}
-            className="rounded-lg border border-snomed-border px-5 py-2.5 text-sm text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Render: Spaces list
-  // ---------------------------------------------------------------------------
 
   return (
     <div>
-      {/* Tab bar + actions — wraps on narrow widths so nothing overlaps */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          {([
-            { key: 'list', label: 'Spaces', onOpen: () => setView('list') },
-            { key: 'category-order', label: 'Category Order', onOpen: () => { setView('category-order'); loadCategoryConfigs(); } },
-            { key: 'audit-log', label: 'Audit Log', onOpen: () => { setView('audit-log'); fetchAuditLogs(); } },
-            { key: 'analytics', label: 'Analytics', onOpen: () => setView('analytics') },
-            { key: 'notifications', label: 'Notifications', onOpen: () => { setView('notifications'); fetchSubscribers(); } },
-          ] as const).map((tab) => (
-            <button
-              key={tab.key}
-              onClick={tab.onOpen}
-              className={`pb-2 border-b-2 transition-all ${view === tab.key ? 'border-snomed-blue text-snomed-blue' : 'border-transparent text-snomed-grey/50 hover:text-snomed-grey'}`}
-            >
-              <h2 className="text-base font-semibold whitespace-nowrap">{tab.label}</h2>
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {view === 'list' && (
-            <>
-              <button
-                onClick={exportSettings}
-                className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2.5 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
-                title="Export all settings to JSON"
-              >
-                <Download size={16} />
-                Export
-              </button>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImport}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  title="Import settings from JSON"
-                />
-                <button
-                  className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2.5 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[44px]"
-                >
-                  <Upload size={16} />
-                  Import
-                </button>
-              </div>
-              <button
-                onClick={openCreateSpace}
-                className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors min-h-[44px]"
-              >
-                <Plus size={16} />
-                New Space
-              </button>
-              <button
-                onClick={resetSiteSettings}
-                disabled={saving}
-                className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors min-h-[44px] disabled:opacity-50"
-                title="Download backup and clear all site settings"
-              >
-                <RotateCcw size={16} />
-                Reset Site
-              </button>
-            </>
-          )}
-          {view === 'category-order' && (
-            <button
-              onClick={saveCategoryOrder}
-              disabled={savingCategories}
-              className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-dark-blue transition-colors min-h-[44px] disabled:opacity-50"
-            >
-              <Save size={16} />
-              {savingCategories ? 'Saving…' : 'Save Order'}
-            </button>
-          )}
-          {view === 'audit-log' && (
-            <div className="flex items-center gap-2">
-              <a
-                href={`/api/admin/audit-logs/export${auditQueryString(auditFilters)}`}
-                className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px]"
-              >
-                <Download size={16} />
-                Export CSV
-              </a>
-              <button
-                onClick={() => fetchAuditLogs()}
-                disabled={loadingLogs}
-                className="flex items-center gap-2 rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px] disabled:opacity-50"
-              >
-                Refresh
-              </button>
-            </div>
-          )}
-          {view === 'notifications' && (
-            <button
-              onClick={sendTestEmail}
-              disabled={sendingTest}
-              title="Email a test notification to your own address to verify SMTP delivery"
-              className="flex items-center gap-2 rounded-lg bg-snomed-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-snomed-blue-dark transition-colors min-h-[44px] disabled:opacity-50"
-            >
-              <Send size={16} />
-              {sendingTest ? 'Sending…' : 'Send test email'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {
-        view === 'analytics' ? (
-          <MetricsPanel spaceNames={Object.fromEntries(spaces.map((s) => [s.id, s.name]))} />
-        ) : view === 'notifications' ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-snomed-border bg-gray-50 flex items-center gap-2">
-                <BellRing size={15} className="text-snomed-blue" aria-hidden="true" />
-                <p className="text-sm text-snomed-grey/60">
-                  Members who clicked <strong>Notify me</strong> — they are emailed when a new document,
-                  Official Record, or meeting document lands in the space. Subscriptions are included in
-                  site Export/Import.
-                </p>
-              </div>
-              {loadingSubscribers ? (
-                <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">Loading subscriptions…</div>
-              ) : subscribers.length === 0 ? (
-                <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">
-                  No one has subscribed to notifications yet.
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-snomed-border text-left text-[10px] uppercase tracking-wide text-snomed-grey/50">
-                      <th className="px-5 py-2 font-semibold">Space</th>
-                      <th className="px-5 py-2 font-semibold">Email</th>
-                      <th className="px-5 py-2 font-semibold text-right">Subscribed</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-snomed-border">
-                    {subscribers.map((sub) => (
-                      <tr key={`${sub.spaceId}:${sub.userId}`} className="hover:bg-gray-50">
-                        <td className="px-5 py-2.5 text-snomed-grey">
-                          {spaces.find((s) => s.id === sub.spaceId)?.name ?? sub.spaceId}
-                        </td>
-                        <td className="px-5 py-2.5 text-snomed-grey/80">{sub.email}</td>
-                        <td className="px-5 py-2.5 text-right tabular-nums text-snomed-grey/50">
-                          {new Date(sub.createdAt.includes('T') ? sub.createdAt : sub.createdAt.replace(' ', 'T') + 'Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        ) : view === 'category-order' ? (
-          <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-snomed-border bg-gray-50">
-              <p className="text-sm text-snomed-grey/60">
-                Set the display order for space groups on the Spaces page. Lower numbers appear first.
-                Leave a field blank to place that category after all numbered ones, sorted alphabetically.
-              </p>
-            </div>
-            {loadingCategories && categoryConfigs.length === 0 ? (
-              <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">Loading categories…</div>
-            ) : categoryConfigs.length === 0 ? (
-              <div className="px-5 py-12 text-center text-sm text-snomed-grey/50">
-                No categories found. Add spaces with hierarchy categories first.
-              </div>
-            ) : (
-              <div className="divide-y divide-snomed-border">
-                {categoryConfigs.map((cat, i) => (
-                  <div key={cat.name} className="flex items-center gap-4 px-5 py-3">
-                    <div className="flex-1 text-sm font-medium text-snomed-grey">{cat.name}</div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-snomed-grey/50">Sort order</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={cat.sortOrder ?? ''}
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
-                          setCategoryConfigs((prev) =>
-                            prev.map((c, j) => j === i ? { ...c, sortOrder: val } : c),
-                          );
-                        }}
-                        placeholder="—"
-                        className="w-24 rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey text-right placeholder:text-snomed-grey/40 focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue transition-colors"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : view === 'audit-log' ? (
-          <div className="space-y-3">
-            {/* Filter bar */}
-            <div className="rounded-xl border border-snomed-border bg-white shadow-sm p-4">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-snomed-grey/50">Action</label>
-                  <select
-                    value={auditFilters.action}
-                    onChange={(e) => setAuditFilters((f) => ({ ...f, action: e.target.value }))}
-                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
-                  >
-                    <option value="">All actions</option>
-                    {AUDIT_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-snomed-grey/50">Entity</label>
-                  <select
-                    value={auditFilters.entityType}
-                    onChange={(e) => setAuditFilters((f) => ({ ...f, entityType: e.target.value }))}
-                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
-                  >
-                    <option value="">All entities</option>
-                    {AUDIT_ENTITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-snomed-grey/50">User</label>
-                  <input
-                    type="text"
-                    value={auditFilters.user}
-                    onChange={(e) => setAuditFilters((f) => ({ ...f, user: e.target.value }))}
-                    placeholder="Name contains…"
-                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey placeholder:text-snomed-grey/40 focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-snomed-grey/50">From</label>
-                  <input
-                    type="date"
-                    value={auditFilters.from}
-                    onChange={(e) => setAuditFilters((f) => ({ ...f, from: e.target.value }))}
-                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-snomed-grey/50">To</label>
-                  <input
-                    type="date"
-                    value={auditFilters.to}
-                    onChange={(e) => setAuditFilters((f) => ({ ...f, to: e.target.value }))}
-                    className="rounded-lg border border-snomed-border bg-white px-3 py-2 text-sm text-snomed-grey focus:outline-none focus:ring-2 focus:ring-snomed-blue/30 focus:border-snomed-blue min-h-[40px]"
-                  />
-                </div>
-                <button
-                  onClick={() => fetchAuditLogs()}
-                  disabled={loadingLogs}
-                  className="rounded-lg bg-snomed-blue px-4 py-2 text-sm font-medium text-white hover:bg-snomed-blue-dark transition-colors min-h-[40px] disabled:opacity-50"
-                >
-                  Apply
-                </button>
-                {(auditFilters.action || auditFilters.entityType || auditFilters.user || auditFilters.from || auditFilters.to) && (
-                  <button
-                    onClick={() => { setAuditFilters(EMPTY_AUDIT_FILTERS); }}
-                    className="rounded-lg border border-snomed-border bg-white px-4 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px]"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-
-          <div className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-snomed-border">
-                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Timestamp</th>
-                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">User</th>
-                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Action</th>
-                    <th className="px-5 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider">Entity</th>
-                    <th className="px-0 py-3 font-semibold text-snomed-grey/60 uppercase text-[10px] tracking-wider w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-snomed-border">
-                  {loadingLogs && auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">Loading logs...</td>
-                    </tr>
-                  ) : auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-12 text-center text-snomed-grey/50">No audit logs found.</td>
-                    </tr>
-                  ) : (
-                    auditLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50 transition-colors group">
-                        <td className="px-5 py-4 whitespace-nowrap text-xs text-snomed-grey/70">
-                          {new Date(log.timestamp).toLocaleString('en-GB', {
-                            day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                          })}
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <p className="font-medium text-snomed-grey text-xs">{log.userName}</p>
-                          <p className="text-[10px] text-snomed-grey/40 font-mono">{log.userId.slice(0, 8)}...</p>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${log.action.startsWith('DELETE') ? 'bg-red-50 text-red-700' :
-                            log.action.startsWith('CREATE') || log.action.includes('UPLOAD') ? 'bg-green-50 text-green-700' :
-                              'bg-snomed-blue-light text-snomed-blue'
-                            }`}>
-                            {log.action}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="text-xs text-snomed-grey font-medium">{log.entityType}</p>
-                          <p className="text-[10px] text-snomed-grey/40 font-mono truncate max-w-[120px]" title={log.entityId}>
-                            {log.entityId}
-                          </p>
-                        </td>
-                        <td className="px-2 py-4 text-right">
-                          {log.details && (
-                            <div className="relative group/details">
-                              <Info size={14} className="text-snomed-grey/30 hover:text-snomed-blue cursor-help" />
-                              <div className="absolute right-full bottom-0 mr-3 hidden group-hover/details:block z-50 w-64 p-3 bg-white border border-snomed-border rounded-lg shadow-xl text-[10px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
-                                {JSON.stringify(JSON.parse(log.details), null, 2)}
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-            {hasMoreLogs && (
-              <div className="flex justify-center pt-1">
-                <button
-                  onClick={() => fetchAuditLogs({ append: true })}
-                  disabled={loadingLogs}
-                  className="rounded-lg border border-snomed-border bg-white px-5 py-2 text-sm font-medium text-snomed-grey hover:bg-gray-50 transition-colors min-h-[40px] disabled:opacity-50"
-                >
-                  {loadingLogs ? 'Loading…' : 'Load more'}
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {spaces.length === 0 && (
-              <div className="rounded-xl border border-dashed border-snomed-border bg-white p-12 text-center">
-                <Settings size={32} className="mx-auto mb-3 text-snomed-grey/30" />
-                <p className="text-sm text-snomed-grey/60">No spaces configured yet.</p>
-                <button
-                  onClick={openCreateSpace}
-                  className="mt-3 text-sm text-snomed-blue hover:underline"
-                >
-                  Create your first space →
-                </button>
-              </div>
-            )}
-
-            {spaces.map((space) => {
-              const isExpanded = expandedSpaceId === space.id;
-              const isDeleting = deleting === space.id;
-
-              return (
-                <div
-                  key={space.id}
-                  className="rounded-xl border border-snomed-border bg-white shadow-sm overflow-hidden"
-                >
-                  {/* Space row */}
-                  <div className="flex items-center gap-3 px-5 py-4">
-                    <button
-                      onClick={() => {
-                        setExpandedSpaceId(isExpanded ? null : space.id);
-                      }}
-                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-snomed-blue-light transition-colors"
-                      aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                    >
-                      {isExpanded
-                        ? <ChevronDown size={16} className="text-snomed-blue" />
-                        : <ChevronRight size={16} className="text-snomed-grey/50" />
-                      }
-                    </button>
-
-                    <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-snomed-blue-light flex items-center justify-center">
-                      <FolderOpen size={17} className="text-snomed-blue" />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-snomed-grey">{space.name}</span>
-                        <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/60 px-1.5 py-0.5 rounded">
-                          {space.id}
-                        </span>
-                        <span className="text-[11px] bg-snomed-blue-light text-snomed-blue px-1.5 py-0.5 rounded">
-                          {space.hierarchyCategory}
-                        </span>
-                        {space.sections.length > 0 && (
-                          <span className="text-[11px] text-snomed-grey/50">
-                            {space.sections.length} section{space.sections.length !== 1 ? 's' : ''}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-snomed-grey/50 mt-0.5 truncate">
-                        Group: <span className="font-mono">{space.keycloakGroup}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex-shrink-0 flex items-center gap-1">
-                      <button
-                        onClick={() => openEditSpace(space)}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-snomed-blue-light hover:text-snomed-blue transition-colors min-h-[36px]"
-                      >
-                        <Pencil size={13} />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => confirmDeleteSpace(space)}
-                        disabled={isDeleting}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors min-h-[36px] disabled:opacity-40"
-                      >
-                        <Trash2 size={13} />
-                        {isDeleting ? '…' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Expanded: sections */}
-                  {isExpanded && (
-                    <div className="border-t border-snomed-border bg-snomed-blue-light/20">
-                      {/* Section list */}
-                      {space.sections.length > 0 && (
-                        <div className="divide-y divide-snomed-border/60">
-                          {space.sections.map((section) => {
-                            const sectionDeleting = deleting === `${space.id}:${section.id}`;
-                            return (
-                              <div key={section.id} className="flex items-center gap-3 pl-14 pr-5 py-3">
-                                <Folder size={15} className="flex-shrink-0 text-snomed-blue/60" />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm text-snomed-grey font-medium">{section.name}</span>
-                                    <span className="text-[11px] font-mono bg-gray-100 text-snomed-grey/50 px-1 py-0.5 rounded">
-                                      {section.id}
-                                    </span>
-                                  </div>
-                                  {section.description && (
-                                    <p className="text-xs text-snomed-grey/50 truncate">{section.description}</p>
-                                  )}
-                                  <p className="text-[11px] font-mono text-snomed-grey/40 mt-0.5 truncate">
-                                    {section.driveFolderId}
-                                  </p>
-                                </div>
-                                <div className="flex-shrink-0 flex items-center gap-1">
-                                  <button
-                                    onClick={() => openEditSection(space.id, section)}
-                                    className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-white hover:text-snomed-blue transition-colors"
-                                  >
-                                    <Pencil size={12} />
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => confirmDeleteSection(space.id, section)}
-                                    disabled={sectionDeleting}
-                                    className="flex items-center gap-1 rounded px-2.5 py-1.5 text-xs text-snomed-grey hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-40"
-                                  >
-                                    <Trash2 size={12} />
-                                    {sectionDeleting ? '…' : 'Delete'}
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Add section button */}
-                      <div className="pl-14 pr-5 py-3 border-t border-snomed-border/60">
-                        <button
-                          onClick={() => openCreateSection(space.id)}
-                          className="flex items-center gap-2 text-xs text-snomed-blue hover:text-snomed-dark-blue transition-colors min-h-[36px]"
-                        >
-                          <Plus size={14} />
-                          Add document section
-                        </button>
-                      </div>
-
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )
-      }
-
-      {toast && <Toast message={toast.message} type={toast.type} />}
-    </div >
+      {content}
+      {toastElement}
+    </div>
   );
 }
