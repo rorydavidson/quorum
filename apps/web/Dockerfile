@@ -2,7 +2,7 @@
 # Build context: repository root (for monorepo workspace resolution)
 
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /repo
 
 # Install pnpm
@@ -33,7 +33,7 @@ ENV BFF_URL=http://bff:3001
 RUN pnpm --filter web build
 
 # ── Stage 2: runner ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
