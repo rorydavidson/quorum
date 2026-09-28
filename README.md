@@ -538,7 +538,15 @@ nginx container (port 80, + port 443 in production)
 certbot (production only) — renews Let's Encrypt certs every 12 h
 ```
 
-All containers run on an internal Docker bridge network. Only nginx publishes ports to the host.
+Only nginx publishes ports to the host. Containers are split across three networks so a compromise of one container reaches as little as possible:
+
+| Network | Members | Internet access |
+|---|---|---|
+| `public` | nginx, bff, certbot | yes (published ports, Keycloak, Google, Discourse) |
+| `app` | nginx, web, bff | no |
+| `data` | bff, postgres, redis | no |
+
+The web container sits on `app` alone: it can reach nginx and the BFF but not the database, Redis or the internet. It also runs with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, with tmpfs mounts for `/tmp` and `.next/cache`.
 
 ### Prerequisites
 
@@ -562,7 +570,7 @@ Docker Compose reads `.env` from the project root (alongside `docker-compose.yml
 
 | Variable | Local dev | Production |
 |---|---|---|
-| `POSTGRES_PASSWORD` | any string | strong random password |
+| `POSTGRES_PASSWORD` | any string (required, compose refuses to start without it) | strong random password |
 | `PUBLIC_URL` | `http://localhost` | `https://your.domain.com` |
 | `COOKIE_SECURE` | `false` | `true` |
 | `DOMAIN` | *(unused)* | `your.domain.com` (no `https://`) |

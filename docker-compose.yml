@@ -15,6 +15,14 @@
 #   nginx (port 80) → /auth/* → bff:3001
 #                   → /*     → web:3000
 #   bff:3001        → postgres:5432, redis:6379
+#
+# Networks:
+#   public   nginx, bff        normal bridge: published ports and outbound internet
+#   app      nginx, web, bff   internal: no internet access
+#   data     bff, postgres,    internal: only the BFF can reach the datastores
+#            redis
+#   The web container is on `app` only, so code running in it can reach nothing
+#   but nginx and the BFF: no database, no Redis, no outbound internet.
 
 services:
   postgres:
@@ -23,7 +31,7 @@ services:
     environment:
       POSTGRES_DB: quorum
       POSTGRES_USER: quorum
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quorum_dev_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +40,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - internal
+      - data
 
   # Shared store for rate-limit counters (and available for future caching).
   # Keeps limits consistent when the bff runs as more than one instance.
@@ -48,7 +56,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - internal
+      - data
 
   bff:
     build:
@@ -60,7 +68,7 @@ services:
     environment:
       PORT: "3001"
       NODE_ENV: production
-      DATABASE_URL: postgresql://quorum:${POSTGRES_PASSWORD:-quorum_dev_only}@postgres:5432/quorum
+      DATABASE_URL: postgresql://quorum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/quorum
       REDIS_URL: redis://redis:6379
       FRONTEND_ORIGIN: ${PUBLIC_URL:-http://localhost}
       # Set to "true" only when TLS is enabled. Browsers reject Secure cookies
@@ -72,7 +80,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - internal
+      - public
+      - app
+      - data
 
   web:
     build:
@@ -86,10 +96,20 @@ services:
       HOSTNAME: "0.0.0.0"
       NODE_ENV: production
       BFF_URL: http://bff:3001
+    # Read-only root filesystem, no capabilities, no privilege escalation.
+    # Limits what an attacker can do after an RCE in Next.js (e.g. CVE-2025-55182).
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /app/apps/web/.next/cache:mode=1777,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - bff
     networks:
-      - internal
+      - app
 
   nginx:
     image: nginx:1.27-alpine
@@ -107,7 +127,8 @@ services:
       - web
       - bff
     networks:
-      - internal
+      - public
+      - app
 
 volumes:
   postgres_data:
@@ -115,5 +136,11 @@ volumes:
   certbot_webroot:
 
 networks:
-  internal:
+  public:
     driver: bridge
+  app:
+    driver: bridge
+    internal: true
+  data:
+    driver: bridge
+    internal: true
