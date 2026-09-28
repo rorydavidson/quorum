@@ -163,6 +163,7 @@ Use these token names. `snomed-dark-blue` does not exist and silently does nothi
 16. **The web API proxy is an allowlist.** A new BFF prefix must be added to `PROXIED_PREFIXES` in `lib/proxy.ts` before the browser can reach it.
 17. **5xx responses never carry `err.message`.** The global `errorHandler` logs the full error and returns a generic message with the error `code`.
 18. **No sample data in production.** Mock Drive files appear only without Service Account credentials; mock calendar events only with `CALENDAR_MOCK=true`; mock forum topics only with `DISCOURSE_MOCK=true`. `DEV_AUTH_BYPASS` is ignored when `NODE_ENV=production`.
+19. **The web container is isolated.** In `docker-compose.yml` it sits on the internal `app` network only (nginx + BFF), with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges`. Never attach it to `data` or `public`, and never give it secrets: everything sensitive belongs to the BFF.
 
 ---
 
