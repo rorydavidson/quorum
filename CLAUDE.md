@@ -155,7 +155,7 @@ Use these token names. `snomed-dark-blue` does not exist and silently does nothi
 8. **Input validation:** every BFF write body is validated with Zod before any DB write, including `/admin/import`. URLs the server will fetch (`icalUrl`) must be https; URLs the browser will render as links must be http(s).
 9. **No CORS wildcards:** BFF CORS origin locked to `FRONTEND_ORIGIN`.
 10. **No sensitive data in Next.js `NEXT_PUBLIC_` env vars.**
-11. **CSRF tokens required** on POST/PUT/DELETE to `/documents`, `/admin`, `/events`, `/notifications`. Frontend uses `csrfFetch()` from `lib/csrf.ts`, which fetches `GET /csrf-token` and sends it as `x-csrf-token`.
+11. **CSRF tokens required** on POST/PUT/DELETE to `/documents`, `/admin`, `/events`, `/notifications`, and on `POST /auth/logout` (logout is never a GET). Frontend uses `csrfFetch()` from `lib/csrf.ts`, which fetches `GET /csrf-token` and sends it as `x-csrf-token`.
 12. **Rate limiting** applied globally (100 req/min) and per-endpoint (auth 30/min, search 20/min, upload 10/min).
 13. **Folder ancestry verification:** user-supplied `folderId` / `fileId` params are verified against the space's Drive folder tree (`verifyFolderAncestry` / `verifyFileAncestry`) before use. Never call Drive with an unverified id.
 14. **Per-space scoping in the DB:** rows that belong to a space (event metadata, sections, reads) are always queried with the space id, never by their own id alone.

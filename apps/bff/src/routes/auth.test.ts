@@ -20,6 +20,7 @@ const mockExchangeCodeForTokens = vi.fn();
 const mockParseIdToken = vi.fn();
 const mockRefreshTokens = vi.fn();
 const mockBuildLogoutUrl = vi.fn();
+const mockRevokeRefreshToken = vi.fn();
 
 vi.mock("../services/keycloak.js", () => ({
   buildAuthParams: mockBuildAuthParams,
@@ -27,6 +28,7 @@ vi.mock("../services/keycloak.js", () => ({
   parseIdToken: mockParseIdToken,
   refreshTokens: mockRefreshTokens,
   buildLogoutUrl: mockBuildLogoutUrl,
+  revokeRefreshToken: mockRevokeRefreshToken,
   initKeycloak: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -64,6 +66,8 @@ type SessionPatch = {
   oauthState?: string;
   oauthNonce?: string;
   refreshToken?: string;
+  idToken?: string;
+  csrfSecret?: string;
 };
 
 async function createApp(patch: SessionPatch = {}) {
@@ -84,6 +88,8 @@ async function createApp(patch: SessionPatch = {}) {
       if (patch.oauthState) req.session.oauthState = patch.oauthState;
       if (patch.oauthNonce) req.session.oauthNonce = patch.oauthNonce;
       if (patch.refreshToken) req.session.refreshToken = patch.refreshToken;
+      if (patch.idToken) req.session.idToken = patch.idToken;
+      if (patch.csrfSecret) req.session._csrfSecret = patch.csrfSecret;
       next();
     });
   }
@@ -226,22 +232,87 @@ describe("GET /auth/callback", () => {
 // GET /auth/logout
 // ---------------------------------------------------------------------------
 
-describe("GET /auth/logout", () => {
+describe("/auth/logout", () => {
+  const CSRF = "csrf-secret-value";
+
   beforeEach(() => {
+    vi.clearAllMocks();
     mockBuildLogoutUrl.mockReturnValue(MOCK_LOGOUT_URL);
+    mockRevokeRefreshToken.mockResolvedValue(undefined);
   });
 
-  it("redirects to the Keycloak logout URL", async () => {
-    const app = await createApp({ user: MOCK_SESSION_USER });
+  it("rejects GET so a cross-site link or prefetch cannot sign users out", async () => {
+    const app = await createApp({ user: MOCK_SESSION_USER, csrfSecret: CSRF });
     const res = await request(app).get("/auth/logout");
-    expect(res.status).toBe(302);
-    expect(res.header.location).toBe(MOCK_LOGOUT_URL);
+    expect(res.status).toBe(405);
+    expect(res.body.code).toBe("METHOD_NOT_ALLOWED");
+    expect(mockBuildLogoutUrl).not.toHaveBeenCalled();
   });
 
-  it("calls buildLogoutUrl with the frontend origin", async () => {
-    const app = await createApp({ user: MOCK_SESSION_USER });
-    await request(app).get("/auth/logout");
-    expect(mockBuildLogoutUrl).toHaveBeenCalledWith(expect.any(String));
+  it("rejects POST without a valid CSRF token", async () => {
+    const app = await createApp({ user: MOCK_SESSION_USER, csrfSecret: CSRF });
+    const res = await request(app).post("/auth/logout").set("x-csrf-token", "wrong");
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("CSRF_INVALID");
+    expect(mockRevokeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it("returns the Keycloak logout URL built with the stored id_token", async () => {
+    const app = await createApp({
+      user: MOCK_SESSION_USER,
+      csrfSecret: CSRF,
+      idToken: "stored-id-token",
+      refreshToken: "stored-refresh-token",
+    });
+    const res = await request(app).post("/auth/logout").set("x-csrf-token", CSRF);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ logoutUrl: MOCK_LOGOUT_URL });
+    expect(mockBuildLogoutUrl).toHaveBeenCalledWith(expect.any(String), "stored-id-token");
+  });
+
+  it("revokes the refresh token", async () => {
+    const app = await createApp({
+      user: MOCK_SESSION_USER,
+      csrfSecret: CSRF,
+      refreshToken: "stored-refresh-token",
+    });
+    await request(app).post("/auth/logout").set("x-csrf-token", CSRF);
+    expect(mockRevokeRefreshToken).toHaveBeenCalledWith("stored-refresh-token");
+  });
+
+  it("still signs out when revocation fails", async () => {
+    mockRevokeRefreshToken.mockRejectedValueOnce(new Error("keycloak down"));
+    const app = await createApp({
+      user: MOCK_SESSION_USER,
+      csrfSecret: CSRF,
+      refreshToken: "stored-refresh-token",
+    });
+    const res = await request(app).post("/auth/logout").set("x-csrf-token", CSRF);
+    expect(res.status).toBe(200);
+  });
+
+  it("destroys the session and expires the session cookie", async () => {
+    // No pre-populate middleware here: it would re-add the user to the fresh
+    // session that a reused cookie maps to after destroy.
+    const app = express();
+    app.use(session({ secret: "test-secret-for-auth-routes", resave: false, saveUninitialized: false }));
+    app.post("/seed", (req, res) => {
+      req.session.user = MOCK_SESSION_USER;
+      req.session._csrfSecret = CSRF;
+      res.sendStatus(204);
+    });
+    app.get("/whoami", (req, res) => res.json({ user: req.session.user ?? null }));
+    const { default: authRouter } = await import("./auth.js");
+    app.use("/auth", authRouter);
+
+    const agent = request.agent(app);
+    await agent.post("/seed");
+    const res = await agent.post("/auth/logout").set("x-csrf-token", CSRF);
+    expect(res.status).toBe(200);
+    expect(([] as string[]).concat(res.headers["set-cookie"] ?? []).join(";")).toMatch(/quorum_session=;/);
+
+    const after = await agent.get("/whoami");
+    expect(after.body.user).toBeNull();
   });
 });
 

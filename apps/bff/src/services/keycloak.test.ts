@@ -37,6 +37,7 @@ const {
     callbackParams: vi.fn().mockReturnValue({ code: "test-code" }),
     callback: vi.fn(),
     refresh: vi.fn(),
+    revoke: vi.fn(),
   };
 
   // IMPORTANT: @vitest/spy v4 requires that implementations used with `new`
@@ -84,6 +85,7 @@ import type { TokenSet } from "openid-client";
 import {
   buildAuthParams,
   buildLogoutUrl,
+  revokeRefreshToken,
   exchangeCodeForTokens,
   initKeycloak,
   parseIdToken,
@@ -372,6 +374,26 @@ describe("after initKeycloak()", () => {
 
       expect(result).toContain(MOCK_END_SESSION);
       expect(result).toContain(encodeURIComponent(postLogoutUri));
+    });
+
+    it("adds client_id, and id_token_hint when an ID token is supplied", () => {
+      const url = new URL(buildLogoutUrl("http://localhost:3000", "the-id-token"));
+      expect(url.searchParams.get("post_logout_redirect_uri")).toBe("http://localhost:3000");
+      expect(url.searchParams.get("client_id")).toBeTruthy();
+      expect(url.searchParams.get("id_token_hint")).toBe("the-id-token");
+    });
+
+    it("omits id_token_hint when no ID token is available", () => {
+      const url = new URL(buildLogoutUrl("http://localhost:3000"));
+      expect(url.searchParams.has("id_token_hint")).toBe(false);
+    });
+  });
+
+  describe("revokeRefreshToken()", () => {
+    it("revokes the token at Keycloak as a refresh_token", async () => {
+      mockClientInstance.revoke.mockResolvedValueOnce(undefined);
+      await revokeRefreshToken("rt-123");
+      expect(mockClientInstance.revoke).toHaveBeenCalledWith("rt-123", "refresh_token");
     });
   });
 });
