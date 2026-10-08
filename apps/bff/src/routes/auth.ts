@@ -129,17 +129,29 @@ router.get('/callback', asyncHandler(async (req, res) => {
   }
   const user = parseIdToken(tokenSet);
 
-  // Store user and refresh token in session
-  req.session.user = user;
-  req.session.refreshToken = tokenSet.refresh_token ?? '';
-
-  req.session.save((err) => {
-    if (err) {
-      reqLog(req).error({ err }, "Failed to save session after callback");
+  // Issue a fresh session id on login. The CSRF middleware gives every anonymous
+  // visitor a persisted session, so without this an id planted before login
+  // (shared device, injected cookie) would become an authenticated session.
+  // Regenerating also drops the pre-login CSRF secret; the CSRF middleware
+  // issues a new one on the next request.
+  req.session.regenerate((regenErr) => {
+    if (regenErr) {
+      reqLog(req).error({ err: regenErr }, "Failed to regenerate session after callback");
       res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
       return;
     }
-    res.redirect(`${FRONTEND_ORIGIN}/dashboard`);
+
+    req.session.user = user;
+    req.session.refreshToken = tokenSet.refresh_token ?? '';
+
+    req.session.save((err) => {
+      if (err) {
+        reqLog(req).error({ err }, "Failed to save session after callback");
+        res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });
+        return;
+      }
+      res.redirect(`${FRONTEND_ORIGIN}/dashboard`);
+    });
   });
 }));
 
