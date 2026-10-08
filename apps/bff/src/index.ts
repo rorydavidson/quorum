@@ -20,6 +20,7 @@ import forumRouter from "./routes/forum.js";
 import notificationsRouter from "./routes/notifications.js";
 import metricsRouter from "./routes/metrics.js";
 import { globalLimiter, authLimiter, searchLimiter, closeRateLimiterRedis } from "./middleware/rateLimiter.js";
+import { isCookieSecure } from "./utils/cookies.js";
 import { csrfToken, csrfProtection } from "./middleware/csrf.js";
 import { logger } from "./services/logger.js";
 import { httpLogger } from "./middleware/httpLogger.js";
@@ -104,13 +105,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // COOKIE_SECURE overrides the default (production = secure).
-      // Set COOKIE_SECURE=false when running production behind HTTP-only
-      // (e.g. Docker without TLS). Browsers reject Secure cookies over HTTP.
-      secure:
-        process.env.COOKIE_SECURE !== undefined
-          ? process.env.COOKIE_SECURE === "true"
-          : process.env.NODE_ENV === "production",
+      secure: isCookieSecure(),
       sameSite: "lax",
       maxAge: 8 * 60 * 60 * 1000, // 8 hours
     },

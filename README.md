@@ -572,7 +572,7 @@ Docker Compose reads `.env` from the project root (alongside `docker-compose.yml
 |---|---|---|
 | `POSTGRES_PASSWORD` | any string (required, compose refuses to start without it) | strong random password |
 | `PUBLIC_URL` | `http://localhost` | `https://your.domain.com` |
-| `COOKIE_SECURE` | `false` | `true` |
+| `COOKIE_SECURE` | `false` | *(forced to `true` by `docker-compose.prod.yml`)* |
 | `DOMAIN` | *(unused)* | `your.domain.com` (no `https://`) |
 | `CERTBOT_EMAIL` | *(unused)* | admin email for Let's Encrypt |
 
