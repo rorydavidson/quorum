@@ -101,7 +101,7 @@ BFF / Backend-for-Frontend (port 3001)
 ## Prerequisites
 
 - **Node.js** ≥ 20
-- **pnpm** ≥ 9 (`npm install -g pnpm`)
+- **pnpm** 9, pinned by `packageManager` in `package.json` (`corepack enable` picks it up)
 - Access to a **Keycloak** realm with admin rights
 - A **Google Cloud** project with Drive API and Calendar API enabled
 - A Google Cloud **Service Account** with access to your Shared Drives

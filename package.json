@@ -2,6 +2,7 @@
   "name": "quorum",
   "version": "0.0.1",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "pnpm build && concurrently \"pnpm --filter bff dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter types build && pnpm --filter bff build && pnpm --filter web build",
