@@ -43,10 +43,9 @@ if ! command -v node &>/dev/null || [[ "$(node --version)" != v20* ]]; then
     apt-get install -y nodejs
 fi
 
-# pnpm
-if ! command -v pnpm &>/dev/null; then
-    npm install -g pnpm
-fi
+# pnpm via corepack (ships with Node 20). The repo's packageManager field
+# selects the exact version, so every install uses the same pnpm as CI.
+corepack enable
 
 # nginx
 apt-get install -y nginx

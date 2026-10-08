@@ -52,7 +52,7 @@ Primary goal: a clean, professional, **iPadOS-accessible** interface for board m
 | PDF Viewer | react-pdf (PDF.js) | In-portal viewer, avoids iPadOS app redirects |
 | Styling | Tailwind CSS with hand-rolled components | No component library. shadcn/ui is **not** used. |
 | Icons | lucide-react | |
-| Package manager | pnpm workspace | `apps/web`, `apps/bff`, `packages/types` |
+| Package manager | pnpm 9 workspace | `apps/web`, `apps/bff`, `packages/types`. Version pinned by `packageManager` in `package.json`; don't regenerate the lockfile with another major |
 | Hosting | Docker (nginx + web + bff + postgres + redis) via `docker-compose*.yml`, or systemd units under `deploy/` | CI pushes images to Docker Hub on `main`, `develop` and `v*` tags |
 
 `@tanstack/react-query` is in `apps/web/package.json` but currently unused.
