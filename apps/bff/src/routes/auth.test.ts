@@ -164,6 +164,53 @@ describe("GET /auth/callback", () => {
     );
   });
 
+  it("issues a new session id on login and drops pre-login session data", async () => {
+    const app = express();
+    app.use(
+      session({ secret: "test-secret-for-auth-routes", resave: false, saveUninitialized: false }),
+    );
+    // Stand-in for the CSRF middleware, which persists every anonymous session.
+    let secrets = 0;
+    app.use((req, _res, next) => {
+      if (!req.session._csrfSecret) req.session._csrfSecret = `secret-${++secrets}`;
+      next();
+    });
+    app.get("/whoami", (req, res) => {
+      res.json({ user: req.session.user ?? null, csrf: req.session._csrfSecret });
+    });
+    const { default: authRouter } = await import("./auth.js");
+    app.use("/auth", authRouter);
+
+    const agent = request.agent(app);
+    const sessionCookie = (res: request.Response) =>
+      ([] as string[])
+        .concat(res.headers["set-cookie"] ?? [])
+        .find((c) => c.startsWith("connect.sid="))
+        ?.split(";")[0];
+
+    const anon = await agent.get("/whoami");
+    const preLoginSecret = anon.body.csrf;
+    const preLoginCookie = sessionCookie(anon);
+    expect(preLoginCookie).toBeDefined();
+
+    const login = await agent
+      .get(`/auth/callback?code=auth-code&state=${MOCK_STATE}`)
+      .set("Cookie", `${preLoginCookie}; oauth_state=${MOCK_STATE}; oauth_nonce=${MOCK_NONCE}`);
+    expect(login.status).toBe(302);
+    const postLoginCookie = sessionCookie(login);
+    expect(postLoginCookie).toBeDefined();
+    expect(postLoginCookie).not.toBe(preLoginCookie);
+
+    // The planted pre-login id must not carry the authenticated user.
+    const planted = await request(app).get("/whoami").set("Cookie", preLoginCookie!);
+    expect(planted.body.user).toBeNull();
+
+    // The new session is authenticated and has a fresh CSRF secret.
+    const fresh = await request(app).get("/whoami").set("Cookie", postLoginCookie!);
+    expect(fresh.body.user).toEqual(MOCK_SESSION_USER);
+    expect(fresh.body.csrf).not.toBe(preLoginSecret);
+  });
+
   it("returns 500 when exchangeCodeForTokens throws", async () => {
     mockExchangeCodeForTokens.mockRejectedValueOnce(new Error("invalid state"));
     const app = await createApp();
