@@ -1,6 +1,7 @@
 import { Router, type IRouter } from 'express';
 import { reqLog } from "../services/logger.js";
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { isCookieSecure } from '../utils/cookies.js';
 import {
   buildAuthParams,
   exchangeCodeForTokens,
@@ -37,7 +38,7 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000';
 // the OIDC Authorization Code flow works.
 // ---------------------------------------------------------------------------
 
-const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
+const COOKIE_SECURE = isCookieSecure();
 
 const OAUTH_COOKIE_OPTS = {
   httpOnly: true,

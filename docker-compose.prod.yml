@@ -27,11 +27,16 @@
 #   DOMAIN          — hostname only, e.g. quorum.snomed.org (no https://)
 #   CERTBOT_EMAIL   — email for Let's Encrypt registration + expiry alerts
 #   PUBLIC_URL      — full URL e.g. https://quorum.snomed.org
-#   COOKIE_SECURE   — must be "true" for HTTPS
 #
 # See .env.example at the repo root.
 
 services:
+  bff:
+    environment:
+      # Always Secure behind TLS, whatever the root .env says. The base file
+      # defaults to "false" for plain-HTTP local Docker.
+      COOKIE_SECURE: "true"
+
   nginx:
     ports:
       # Add HTTPS port on top of the HTTP port defined in docker-compose.yml
