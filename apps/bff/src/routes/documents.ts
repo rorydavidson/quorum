@@ -6,6 +6,7 @@ import {
   type NextFunction,
 } from "express";
 import multer from "multer";
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -16,6 +17,7 @@ import { listFiles, downloadFile, uploadFile, deleteFile, createFolder, verifyFo
 import { isAdminUser, userCanAccessSpace, userCanUpload } from "../utils/rbac.js";
 import { notifyActivity } from "../services/notifications.js";
 import { reqLog } from "../services/logger.js";
+import type { SpaceConfig } from "@snomed/types";
 
 // Allowed MIME types for uploads — documents and common office formats only
 const ALLOWED_MIME_TYPES = new Set([
@@ -48,12 +50,18 @@ const ALLOWED_MIME_TYPES = new Set([
 const upload = multer({
   storage: multer.diskStorage({
     destination: os.tmpdir(),
-    filename: (_req, file, cb) => {
-      // Use a unique name to avoid collisions in the temp dir
-      cb(null, `quorum-${Date.now()}-${file.originalname}`);
+    filename: (_req, _file, cb) => {
+      // Random name: avoids collisions and keeps the client's filename (which
+      // can be long or odd) out of the filesystem. Drive gets file.originalname.
+      cb(null, `quorum-upload-${crypto.randomUUID()}`);
     },
   }),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50 MB
+    files: 1,
+    fields: 10,
+    fieldNameSize: 100,
+  },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
@@ -342,11 +350,12 @@ function uploadSingle(req: Request, res: Response, next: NextFunction): void {
   });
 }
 
-router.post(
-  "/:spaceId/upload",
-  uploadLimiter,
-  uploadSingle,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+/**
+ * Checks the space and upload permission before multer runs, so a request that
+ * will be refused never writes its body to disk.
+ */
+const authorizeUpload = asyncHandler(
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const user = req.session.user!;
     const space = await getSpaceById(String(req.params.spaceId));
 
@@ -382,6 +391,38 @@ router.post(
       return;
     }
 
+    res.locals.space = space;
+    next();
+  },
+);
+
+/**
+ * Deletes multer's temp file once the response is done, whichever path the
+ * handler took (success, validation error, Drive failure or a thrown error).
+ */
+function removeTempUploadOnClose(req: Request, res: Response, next: NextFunction): void {
+  res.on("close", () => {
+    const path = req.file?.path;
+    if (!path) return;
+    fs.unlink(path, (err) => {
+      if (err && err.code !== "ENOENT") {
+        reqLog(req).error({ err, path }, "Failed to delete temp upload file");
+      }
+    });
+  });
+  next();
+}
+
+router.post(
+  "/:spaceId/upload",
+  uploadLimiter,
+  authorizeUpload,
+  removeTempUploadOnClose,
+  uploadSingle,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const user = req.session.user!;
+    const space = res.locals.space as SpaceConfig;
+
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: "No file provided", code: "NO_FILE" });
@@ -395,13 +436,11 @@ router.post(
 
       if (folderId) {
         if (!isValidDriveId(folderId)) {
-          fs.unlink(file.path, () => { });
           res.status(400).json({ error: "Invalid folder ID", code: "INVALID_FOLDER_ID" });
           return;
         }
         const belongs = await verifyFolderAncestry(folderId, space.driveFolderId);
         if (!belongs) {
-          fs.unlink(file.path, () => { });
           res.status(403).json({ error: "Folder is not within this space", code: "FOLDER_OUTSIDE_SPACE" });
           return;
         }
@@ -436,11 +475,6 @@ router.post(
 
       stream.destroy();
 
-      // Clean up the temp file after upload
-      fs.unlink(file.path, (err) => {
-        if (err) reqLog(req).error({ err, path: file.path }, "Failed to delete temp upload file");
-      });
-
       res.status(201).json(driveFile);
 
       // Audit Logging
@@ -473,8 +507,6 @@ router.post(
       });
     } catch (err) {
       reqLog(req).error({ err }, "Drive upload failed");
-      // Best effort cleanup if upload fails
-      fs.unlink(file.path, () => { });
       res
         .status(502)
         .json({ error: "Failed to upload file to Drive", code: "DRIVE_ERROR" });

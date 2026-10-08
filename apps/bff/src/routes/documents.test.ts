@@ -1,8 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach } from 'vitest';
 import express from 'express';
 import session from 'express-session';
 import request from 'supertest';
 import type { SessionUser, SpaceConfig, DriveFile } from '@snomed/types';
+
+// Point multer's temp dir (os.tmpdir(), read when documents.js loads) at a
+// fresh directory so tests can assert that no upload is left on disk.
+const uploadTmpDir = vi.hoisted(() => {
+  const base = (process.env.TMPDIR ?? '/tmp').replace(/\/$/, '');
+  const dir = `${base}/quorum-upload-test-${process.pid}-${Date.now()}`;
+  process.env.TMPDIR = dir;
+  return dir;
+});
 
 // ---------------------------------------------------------------------------
 // Mock DB and Drive services
@@ -38,6 +47,7 @@ vi.mock('../services/notifications.js', () => ({
 
 import * as db from '../services/db.js';
 import * as drive from '../services/drive.js';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -382,6 +392,97 @@ describe('POST /documents/:spaceId/upload — upload permission', () => {
       });
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('SPACE_NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /documents/:spaceId/upload — temp file handling
+// ---------------------------------------------------------------------------
+
+describe('POST /documents/:spaceId/upload — temp files', () => {
+  const pdf = { filename: 'test.pdf', contentType: 'application/pdf' };
+  const expectNoTempFiles = () =>
+    vi.waitFor(() => expect(readdirSync(uploadTmpDir)).toEqual([]));
+
+  beforeAll(() => {
+    mkdirSync(uploadTmpDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    rmSync(uploadTmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    vi.mocked(db.getSpaceById).mockResolvedValue(boardSpace);
+    vi.mocked(drive.uploadFile).mockResolvedValue(mockFile);
+    vi.mocked(drive.verifyFolderAncestry).mockResolvedValue(true);
+  });
+
+  it('checks permission before parsing the upload', async () => {
+    // A disallowed file type would be a 400 from multer; an outsider must get
+    // the 403 first, proving the body was never handed to multer.
+    const app = await createApp(outsiderUser);
+    const res = await request(app)
+      .post('/documents/board/upload')
+      .attach('file', Buffer.from('MZ'), { filename: 'x.exe', contentType: 'application/x-msdownload' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+    await expectNoTempFiles();
+  });
+
+  it('leaves nothing on disk when the space does not exist', async () => {
+    vi.mocked(db.getSpaceById).mockResolvedValue(undefined);
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/documents/nonexistent/upload')
+      .attach('file', Buffer.alloc(64 * 1024), pdf);
+    expect(res.status).toBe(404);
+    await expectNoTempFiles();
+  });
+
+  it('removes the temp file after a successful upload', async () => {
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/documents/board/upload')
+      .attach('file', Buffer.from('%PDF'), pdf);
+    expect(res.status).toBe(201);
+    await expectNoTempFiles();
+  });
+
+  it('removes the temp file when the folder is rejected', async () => {
+    vi.mocked(drive.verifyFolderAncestry).mockResolvedValue(false);
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/documents/board/upload?folderId=other-space-folder')
+      .attach('file', Buffer.from('%PDF'), pdf);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FOLDER_OUTSIDE_SPACE');
+    await expectNoTempFiles();
+  });
+
+  it('removes the temp file when Drive rejects the upload', async () => {
+    vi.mocked(drive.uploadFile).mockRejectedValueOnce(new Error('Drive down'));
+    const app = await createApp(adminUser);
+    const res = await request(app)
+      .post('/documents/board/upload')
+      .attach('file', Buffer.from('%PDF'), pdf);
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('DRIVE_ERROR');
+    await expectNoTempFiles();
+  });
+
+  it('does not use the client filename on disk', async () => {
+    let seen: string[] = [];
+    vi.mocked(drive.uploadFile).mockImplementationOnce(async () => {
+      seen = readdirSync(uploadTmpDir);
+      return mockFile;
+    });
+    const app = await createApp(adminUser);
+    await request(app)
+      .post('/documents/board/upload')
+      .attach('file', Buffer.from('%PDF'), { filename: 'board-minutes.pdf', contentType: 'application/pdf' });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/^quorum-upload-[0-9a-f-]{36}$/);
   });
 });
 
