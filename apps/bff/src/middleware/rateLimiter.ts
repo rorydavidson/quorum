@@ -1,4 +1,5 @@
-import rateLimit, { type Store } from "express-rate-limit";
+import type { Request } from "express";
+import rateLimit, { ipKeyGenerator, type Store } from "express-rate-limit";
 import { logger } from "../services/logger.js";
 import { RedisStore, type RedisReply } from "rate-limit-redis";
 import Redis from "ioredis";
@@ -60,12 +61,42 @@ export async function closeRateLimiterRedis(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Keying.
+//
+// Most browser traffic reaches the BFF through the Next.js server (API proxy,
+// middleware session check, server components), so those requests all share the
+// web container's IP. Keying on IP alone would put every user in one bucket and
+// let a single client exhaust it for everyone. Signed-in users are keyed on their
+// own id instead; only anonymous requests fall back to IP.
+// ---------------------------------------------------------------------------
+
+export function rateLimitKey(req: Request): string {
+  const sub = req.session?.user?.sub;
+  if (sub) return `user:${sub}`;
+  return `ip:${ipKeyGenerator(req.ip ?? "")}`;
+}
+
+// The Next middleware calls /auth/session on every protected page load, and the
+// login link goes through the Next auth proxy, both while the user is still
+// anonymous (so keyed on the shared web IP). Limiting them would let anyone lock
+// the whole portal out of signing in. Both are cheap: one reads the session, the
+// other redirects to Keycloak, which applies its own brute-force protection.
+const UNLIMITED_PATHS = new Set(["/auth/session", "/auth/login"]);
+
+export function isRateLimitExempt(req: Request): boolean {
+  return UNLIMITED_PATHS.has(req.baseUrl + req.path);
+}
+
+const shouldSkip = (req: Request): boolean => isTest || isRateLimitExempt(req);
+
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: envInt("RATE_LIMIT_GLOBAL", 100),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => isTest,
+  keyGenerator: rateLimitKey,
+  skip: shouldSkip,
   store: makeStore("rl:global:"),
   message: { error: "Too many requests, please try again later", code: "RATE_LIMITED" },
 });
@@ -75,7 +106,8 @@ export const authLimiter = rateLimit({
   max: envInt("RATE_LIMIT_AUTH", 30),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => isTest,
+  keyGenerator: rateLimitKey,
+  skip: shouldSkip,
   store: makeStore("rl:auth:"),
   message: { error: "Too many authentication attempts", code: "AUTH_RATE_LIMITED" },
 });
@@ -85,7 +117,8 @@ export const searchLimiter = rateLimit({
   max: envInt("RATE_LIMIT_SEARCH", 20),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => isTest,
+  keyGenerator: rateLimitKey,
+  skip: shouldSkip,
   store: makeStore("rl:search:"),
   message: { error: "Too many search requests", code: "SEARCH_RATE_LIMITED" },
 });
@@ -95,7 +128,8 @@ export const uploadLimiter = rateLimit({
   max: envInt("RATE_LIMIT_UPLOAD", 10),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => isTest,
+  keyGenerator: rateLimitKey,
+  skip: shouldSkip,
   store: makeStore("rl:upload:"),
   message: { error: "Too many upload requests", code: "UPLOAD_RATE_LIMITED" },
 });
