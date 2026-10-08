@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { SessionUser } from "@snomed/types";
 import { NavItems } from "./NavItems";
+import { SignOutButton } from "./SignOutButton";
 
 interface SidebarProps {
   user: SessionUser | null;
@@ -66,15 +67,7 @@ export function Sidebar({ user }: SidebarProps) {
             </div>
           </div>
 
-          {/* Logout — prefetch={false} is critical: without it Next.js
-              prefetches the logout API route on page load, destroying the session. */}
-          <Link
-            href="/api/auth/logout"
-            prefetch={false}
-            className="flex items-center justify-center w-full min-h-[44px] px-4 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 active:bg-red-100 transition-colors duration-150"
-          >
-            Sign out
-          </Link>
+          <SignOutButton />
         </div>
       )}
     </aside>
