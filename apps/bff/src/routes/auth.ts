@@ -2,12 +2,14 @@ import { Router, type IRouter } from 'express';
 import { reqLog } from "../services/logger.js";
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { isCookieSecure } from '../utils/cookies.js';
+import { csrfProtection } from '../middleware/csrf.js';
 import {
   buildAuthParams,
   exchangeCodeForTokens,
   parseIdToken,
   refreshTokens,
   buildLogoutUrl,
+  revokeRefreshToken,
 } from '../services/keycloak.js';
 
 const router: IRouter = Router();
@@ -144,6 +146,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
 
     req.session.user = user;
     req.session.refreshToken = tokenSet.refresh_token ?? '';
+    req.session.idToken = tokenSet.id_token ?? '';
 
     req.session.save((err) => {
       if (err) {
@@ -157,18 +160,34 @@ router.get('/callback', asyncHandler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// GET /auth/logout
-// Clears session and redirects to Keycloak end_session_endpoint.
+// POST /auth/logout
+// Destroys the session, revokes the refresh token and returns the Keycloak
+// logout URL for the browser to navigate to. POST + CSRF so another site
+// cannot sign users out; the URL is returned rather than redirected to because
+// the request comes from fetch(), which cannot follow a cross-origin redirect
+// as a page navigation.
 // ---------------------------------------------------------------------------
 
-router.get('/logout', (req, res) => {
-  const postLogoutUri = FRONTEND_ORIGIN;
-  const logoutUrl = buildLogoutUrl(postLogoutUri);
+router.get('/logout', (_req, res) => {
+  res.status(405).json({ error: 'Use POST to sign out', code: 'METHOD_NOT_ALLOWED' });
+});
+
+router.post('/logout', csrfProtection, (req, res) => {
+  const logoutUrl = buildLogoutUrl(FRONTEND_ORIGIN, req.session.idToken || undefined);
+
+  const refreshToken = req.session.refreshToken;
+  if (refreshToken) {
+    // Best effort: ending the Keycloak session via id_token_hint also kills
+    // this token, but revoking covers a browser that never reaches Keycloak.
+    revokeRefreshToken(refreshToken).catch((err: unknown) => {
+      reqLog(req).warn({ err: err instanceof Error ? err.message : String(err) }, "Refresh token revocation failed");
+    });
+  }
 
   req.session.destroy((err) => {
     if (err) reqLog(req).error({ err }, "Session destroy error on logout");
     res.clearCookie(process.env.SESSION_COOKIE_NAME ?? 'quorum_session');
-    res.redirect(logoutUrl);
+    res.json({ logoutUrl });
   });
 });
 
@@ -207,6 +226,7 @@ router.post('/refresh', asyncHandler(async (req, res) => {
   const user = parseIdToken(tokenSet);
   req.session.user = user;
   req.session.refreshToken = tokenSet.refresh_token ?? req.session.refreshToken;
+  req.session.idToken = tokenSet.id_token ?? req.session.idToken;
   req.session.save((err) => {
     if (err) {
       res.status(500).json({ error: 'Session error', code: 'SESSION_ERROR' });

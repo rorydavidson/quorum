@@ -6,6 +6,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import type { SessionUser } from "@snomed/types";
 import { NavItems } from "./NavItems";
+import { SignOutButton } from "./SignOutButton";
 
 interface NavDrawerProps {
   user: SessionUser | null;
@@ -116,16 +117,7 @@ export function NavDrawer({ user, isAdmin, open, onClose }: NavDrawerProps) {
                 </p>
               </div>
             </div>
-            {/* prefetch={false} is critical: without it Next.js prefetches
-                the logout API route on page load, destroying the session. */}
-            <Link
-              href="/api/auth/logout"
-              prefetch={false}
-              className="flex items-center justify-center w-full min-h-[44px] px-4 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 active:bg-red-100 transition-colors duration-150"
-              onClick={onClose}
-            >
-              Sign out
-            </Link>
+            <SignOutButton />
           </div>
         )}
       </div>

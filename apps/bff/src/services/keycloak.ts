@@ -145,11 +145,26 @@ export async function refreshTokens(refreshToken: string): Promise<TokenSet> {
 // Logout URL
 // ---------------------------------------------------------------------------
 
-export function buildLogoutUrl(postLogoutRedirectUri: string): string {
-  const issuer = _issuer;
-  if (!issuer?.metadata.end_session_endpoint) {
+/**
+ * Keycloak RP-initiated logout URL. With id_token_hint Keycloak ends the SSO
+ * session straight away; without it (Keycloak 18+) it shows a confirmation
+ * page, and a user who walks away from that page stays signed in to Keycloak,
+ * so the next person on a shared device would be logged straight back in.
+ */
+export function buildLogoutUrl(postLogoutRedirectUri: string, idTokenHint?: string): string {
+  const endSession = _issuer?.metadata.end_session_endpoint;
+  if (!endSession) {
     // Fallback if endpoint not advertised
     return postLogoutRedirectUri;
   }
-  return `${issuer.metadata.end_session_endpoint}?post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}`;
+  const url = new URL(endSession);
+  url.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+  url.searchParams.set('client_id', CLIENT_ID);
+  if (idTokenHint) url.searchParams.set('id_token_hint', idTokenHint);
+  return url.toString();
+}
+
+/** Revokes a refresh token at Keycloak so it cannot be used after logout. */
+export async function revokeRefreshToken(refreshToken: string): Promise<void> {
+  await getClient().revoke(refreshToken, 'refresh_token');
 }

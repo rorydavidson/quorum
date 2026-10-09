@@ -28,6 +28,8 @@ async function proxyToBff(request: NextRequest): Promise<NextResponse> {
     headers: {
       'cookie': request.headers.get('cookie') ?? '',
       'content-type': request.headers.get('content-type') ?? 'application/json',
+      // POST /auth/logout is CSRF-protected
+      'x-csrf-token': request.headers.get('x-csrf-token') ?? '',
     },
     body: request.method !== 'GET' && request.method !== 'HEAD'
       ? await request.text()
